@@ -12,7 +12,7 @@ screen.font = function (type, size, padding) {
 
 screen.size = function (screenWidth, screenHeight) {
 	var screenCanvas = document.createElement('canvas');
-	screenContext = screenCanvas.getContext('2d');
+	// screenContext = screenCanvas.getContext('2d');
 	screenCanvas.id = "screenCanvas";
 	screenCanvas.width = screenWidth;  // Need to add defaults
 	screenCanvas.height = screenHeight;
