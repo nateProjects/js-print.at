@@ -1,0 +1,61 @@
+<!doctype html>
+<html>
+<head>
+	<meta charset="utf-8">
+	<title>print.At 0.9.0 example</title>
+	<script src="printAt.0.9.0.min.js"></script>
+</head>
+<body>
+	<script>
+		var screen = pbasic.screen, print = pbasic.print;
+
+		// Optional: set scale before sizing. Default is 2.
+		// screen.scale(3);              // larger backbuffer + larger font
+
+		// Set up a Spectrum-style screen: 256x192 native, 32x24 cells.
+		// At default scale 2 the canvas is 512x384 with a ~16px font.
+		screen.palette('spectrum');
+		screen.size('spectrum');
+
+		print.at(1, 1, "ZX Spectrum: 32 cols x 24 rows");
+		print.at(1, 3, "scale: " + screen.scale() +
+		             "  native: " + screen.nativeWidth + "x" + screen.nativeHeight +
+		             "  buffer: " + screen.canvas.width + "x" + screen.canvas.height);
+
+		// Color swatches
+		print.color(0, 7); print.at(1, 5,  " 0 black on white   ");
+		print.color(1, 6); print.at(1, 6,  " 1 blue on yellow   ");
+		print.color(2, 5); print.at(1, 7,  " 2 red on cyan      ");
+		print.color(3, 4); print.at(1, 8,  " 3 magenta on green ");
+		print.color(7, 0); print.at(1, 9,  " 7 white on black   ");
+
+		// print.line continues from current cursor, then wraps
+		print.color(0, 7);
+		print.at(1, 11, "PRINT line one");
+		print.line(" continues here");
+		print.line("next row, col 1");
+
+		// --- swap to a different machine ---------------------------------
+		// Each preset auto-fits its own character grid:
+		//   spectrum  256x192  32x24
+		//   c64       320x200  40x25
+		//   cga       640x200  80x25
+		//   bbc       640x256  80x32
+		//   msx       256x192  32x24
+		//   cpc       320x200  40x25
+		//
+		// screen.palette('c64'); screen.size('c64');
+
+		// --- custom resolution -------------------------------------------
+		// Explicit pixel size + your current font (no preset cell grid):
+		//   screen.size(800, 400);
+
+		// --- live scaling ------------------------------------------------
+		// screen.scale(4);   // re-applies the current resolution at 4x
+
+		// --- bonus: use a non-Courier font for more square cells ---------
+		// screen.font('PixelOperator', 16, 0);
+		// screen.size('spectrum');
+	</script>
+</body>
+</html>

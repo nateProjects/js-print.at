@@ -1,0 +1,61 @@
+<!doctype html>
+<html>
+<head>
+	<meta charset="utf-8">
+	<title>print.At 0.8.0 example</title>
+	<script src="printAt.0.8.0.min.js"></script>
+</head>
+<body>
+	<script>
+		var screen = pbasic.screen, print = pbasic.print;
+
+		screen.font();
+		screen.size(640, 480);
+
+		// Default palette is ZX Spectrum: black ink on white paper.
+		print.at(1, 1, "ZX Spectrum palette demo");
+
+		// print.color(ink, paper) sets ink/paper for subsequent prints.
+		// Numbers index into the active palette.
+		print.color(0, 7); print.at(1, 3, " black on white ");
+		print.color(1, 6); print.at(1, 4, " blue on yellow ");
+		print.color(2, 5); print.at(1, 5, " red on cyan ");
+		print.color(3, 4); print.at(1, 6, " magenta on green ");
+		print.color(7, 0); print.at(1, 7, " white on black ");
+
+		// Strings pass through as raw CSS colors — escape hatch for
+		// one-off colors without registering a palette.
+		print.color('#FF8000', '#101010'); print.at(1, 9, " #FF8000 on #101010 ");
+
+		// print.line draws at the cursor and advances a row:
+		print.color(0, 7);
+		print.at(1, 11, "line one");
+		print.line(" continued");      // continues on row 11
+		print.line("line two");        // wraps to row 12, column 1
+
+		// --- switching palettes -------------------------------------------
+		// screen.palette(name) auto-applies that machine's defaults and clears.
+		// Try one of these (uncomment):
+
+		// screen.palette('c64');     // Commodore 64  - light blue on blue
+		// screen.palette('cga');     // CGA           - gray on black
+		// screen.palette('cpc');     // Amstrad CPC   - white on blue
+		// screen.palette('msx');     // MSX           - white on dark blue
+		// screen.palette('bbc');     // BBC Micro     - white on black
+
+		// --- custom palette ----------------------------------------------
+		// Flat array form:
+		// screen.palette(['#000000', '#00FF00']);  // mono green-on-black
+
+		// Object form with boot defaults:
+		// screen.palette({
+		//     name: 'Apple II lo-res',
+		//     colors: ['#000000','#722640','#40337F','#E434FE',
+		//              '#0E5940','#808080','#1B9AFE','#BFB3FF',
+		//              '#404C00','#E46501','#808080','#FFA0BF',
+		//              '#1BCB01','#BFCC80','#54C7C0','#FFFFFF'],
+		//     defaults: { ink: 15, paper: 0 }
+		// });
+	</script>
+</body>
+</html>

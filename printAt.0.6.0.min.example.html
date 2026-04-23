@@ -1,0 +1,35 @@
+<!doctype html>
+<html>
+<head>
+	<meta charset="utf-8">
+	<title>print.At 0.6.0 example</title>
+	<script src="printAt.0.6.0.min.js"></script>
+</head>
+<body>
+	<script>
+		// Alias the namespace for BASIC-style terseness
+		var screen = pbasic.screen, print = pbasic.print;
+
+		// Initialize screen
+		screen.font();                // Courier, 14px, 4px padding
+		screen.size(640, 480);
+
+		// Examples
+		print.at(1, 1, "hello world");
+		for (var b = 2; b <= 18; b += 2) {
+			for (var a = 1; a <= 34; a++) {
+				print.at(a, b, "#");
+			}
+		}
+
+		// print.line draws at the current cursor and then advances a row.
+		// Position the cursor first with print.at:
+		print.at(1, 20, "goodbye");
+		print.line(" world");        // continues on the same row
+		print.line("...for now");    // next row down, back at column 1
+
+		// Wipe everything:
+		// screen.clear();
+	</script>
+</body>
+</html>
