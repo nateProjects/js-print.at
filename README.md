@@ -151,16 +151,6 @@ Next project -
 
 [1.0.0 interactive demo](https://raw.githack.com/nate2squared/print.At/master/printAt.1.0.0.min.example.html)
 
-[0.9.0 test version (legacy)](https://raw.githack.com/nate2squared/print.At/master/printAt.0.9.0.min.example.html)
-
-[0.8.0 test version (legacy)](https://raw.githack.com/nate2squared/print.At/master/printAt.0.8.0.min.example.html)
-
-[0.6.0 test version (legacy)](https://raw.githack.com/nate2squared/print.At/master/printAt.0.6.0.min.example.html)
-
-[0.4.0 test version (legacy)](https://rawgit.com/nate2squared/print.At/master/printAt.0.4.0.min.example.html)
-
-[0.2.0 test version (legacy)](https://rawgit.com/nate2squared/print.At/master/printAt.0.2.0.min.example.html)
-
 **Acknowledgements**
 
 Claude Code helped squash long-standing bugs in the original 0.4.0 source and extend the library with the palette system, pseudo-resolutions, scaling, border, grid and `cls` features that landed across 0.6.0 → 1.0.0.
