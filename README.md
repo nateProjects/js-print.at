@@ -146,11 +146,65 @@ The grid overlay is repainted after every `print.at` / `print.line` / `clear` wh
 * 1.0 - DONE: `screen.cls` (ink/paper args), `screen.grid` (cell overlay), `screen.border` (configurable surround)
 * 1.1+ - Bitmap fonts (Spectrum ROM 8x8 etc.) for true-pixel `screen.scale(1)` rendering, multi-mode resolutions per machine, JSLint pass
 
-Next project -
-*Print.Key*
+---
+
+## inputKey (companion library)
+
+Keyboard input to sit alongside print output. Drop it in next to `printAt` — it extends the same `pbasic` namespace with a third object, `pbasic.input`, and has no hard dependency on `printAt` so it can be loaded on its own.
+
+```html
+<script src="printAt.1.0.0.min.js"></script>
+<script src="inputKey.0.9.0.min.js"></script>
+<script>
+    var input = pbasic.input;
+
+    // INKEY$ analogue - non-blocking. Returns the character of the key
+    // currently held, or "" if nothing is held.
+    if (input.inkey() === 'q') { /* ... */ }
+
+    // GetKey analogue - async wait for the next key press.
+    // Promise form:
+    var k = await input.getkey();   // { key: "Enter", code: "Enter" }
+    // Callback form:
+    input.getkey(function (k) { console.log(k.key, k.code); });
+
+    // MultiKeys analogue - snapshot of whether specific keys are held.
+    var m = input.multikeys('ArrowUp', 'Space');
+    if (m.ArrowUp && m.Space) { /* ... */ }
+    // m.mask is a bitmask (bit N set if the Nth argument is held).
+    // m.any / m.all are booleans over the requested set.
+
+    // No-args form returns an array of every currently-held event.code.
+    input.multikeys();   // e.g. ["KeyW", "ShiftLeft"]
+
+    // Named constants (event.code values, layout-independent):
+    var K = input.keys;
+    input.multikeys(K.UP, K.A, K.SPACE);
+    // K.SHIFT / K.CTRL / K.ALT / K.META match either left or right.
+</script>
+```
+
+**Design notes**
+
+* `inkey` reports `event.key` (character-like, e.g. `"a"`, `"ArrowUp"`) to stay faithful to BASIC's `INKEY$`.
+* `getkey` and `multikeys` report `event.code` (physical-key, layout-independent, e.g. `"KeyA"`, `"Space"`). Good for games where the positions matter more than the label.
+* Listeners attach lazily on the first `input.*` call, scoped to `window`. Focus the page (click anywhere) before expecting keys. A `blur` handler clears held state so keys don't "stick" when the tab loses focus.
+* Starts at 0.9.0 — earns a 1.0 after testing. 1.0 targets: key-repeat handling, an `onkey` edge-trigger helper, optional scoping to a specific element instead of `window`.
+
+[inputKey 0.9.0 demo](https://raw.githack.com/nate2squared/print.At/master/inputKey.0.9.0.min.example.html)
 
 [1.0.0 interactive demo](https://raw.githack.com/nate2squared/print.At/master/printAt.1.0.0.min.example.html)
 
+[0.9.0 test version (legacy)](https://raw.githack.com/nate2squared/print.At/master/printAt.0.9.0.min.example.html)
+
+[0.8.0 test version (legacy)](https://raw.githack.com/nate2squared/print.At/master/printAt.0.8.0.min.example.html)
+
+[0.6.0 test version (legacy)](https://raw.githack.com/nate2squared/print.At/master/printAt.0.6.0.min.example.html)
+
+[0.4.0 test version (legacy)](https://rawgit.com/nate2squared/print.At/master/printAt.0.4.0.min.example.html)
+
+[0.2.0 test version (legacy)](https://rawgit.com/nate2squared/print.At/master/printAt.0.2.0.min.example.html)
+
 **Acknowledgements**
 
-Claude Code helped squash long-standing bugs in the original 0.4.0 source and extend the library with the palette system, pseudo-resolutions, scaling, border, grid and `cls` features that landed across 0.6.0 → 1.0.0.
+Claude Code helped squash long-standing bugs in the original 0.4.0 source and extend the library with the palette system, pseudo-resolutions, scaling, border, grid and `cls` features that landed across 0.6.0 → 1.0.0, and drafted the companion `inputKey` library.

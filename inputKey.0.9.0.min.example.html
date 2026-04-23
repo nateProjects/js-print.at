@@ -1,0 +1,145 @@
+<!doctype html>
+<html>
+<head>
+	<meta charset="utf-8">
+	<title>inputKey 0.9.0 example</title>
+	<script src="printAt.1.0.0.min.js"></script>
+	<script src="inputKey.0.9.0.min.js"></script>
+	<style>
+		body { font-family: sans-serif; margin: 16px; background: #f4f4f4; color: #222; }
+		h1 { margin: 0 0 4px 0; font-size: 18px; }
+		p.lead { margin: 0 0 12px 0; color: #555; font-size: 13px; }
+		#stage { position: relative; min-height: 480px; }
+		#screenCanvas { position: static !important; display: block; margin: 0 0 16px 0; box-shadow: 0 2px 6px rgba(0,0,0,0.2); }
+		.panels { display: flex; flex-wrap: wrap; gap: 16px; }
+		.panel { background: #fff; border: 1px solid #ddd; border-radius: 6px; padding: 10px 12px; min-width: 220px; }
+		.panel h2 { font-size: 13px; margin: 0 0 6px 0; color: #444; text-transform: uppercase; letter-spacing: 0.5px; }
+		.row { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0; align-items: center; }
+		button { font: 12px/1 sans-serif; padding: 4px 8px; border: 1px solid #bbb; border-radius: 4px; background: #fafafa; cursor: pointer; }
+		button:hover { background: #eee; }
+		code { font-family: Menlo, Consolas, monospace; background: #eee; padding: 1px 4px; border-radius: 3px; }
+	</style>
+</head>
+<body>
+	<h1>inputKey 0.9.0 demo</h1>
+	<p class="lead">
+		Click anywhere on the page, then use the keyboard. The canvas shows live state from
+		<code>input.inkey</code>, <code>input.multikeys</code>, and press the
+		<strong>Get next key</strong> button to try <code>input.getkey</code>.
+		Game area responds to <code>WASD</code> / arrows.
+	</p>
+
+	<div id="stage"></div>
+
+	<div class="panels">
+		<div class="panel">
+			<h2>getkey</h2>
+			<div class="row">
+				<button id="getKeyBtn">Get next key</button>
+				<span id="getKeyResult" style="font: 12px monospace; color: #555;">(waiting...)</span>
+			</div>
+		</div>
+		<div class="panel">
+			<h2>status</h2>
+			<div class="row" style="font: 12px monospace;">
+				<span id="statusLine">(press keys to see state)</span>
+			</div>
+		</div>
+	</div>
+
+	<script>
+		var screen = pbasic.screen, print = pbasic.print, input = pbasic.input;
+		var K = input.keys;
+
+		// Set up a Spectrum-style canvas
+		screen.palette('spectrum');
+		screen.size('spectrum');
+		screen.border(1, 8);
+
+		// Pop canvas into our stage div
+		document.getElementById('stage').appendChild(screen.canvas);
+
+		// Game-like state: a little character that WASD / arrows can move.
+		var sprite = { x: 16, y: 12, ch: '@' };
+
+		function repaint() {
+			screen.clear();
+
+			print.color(6, 1);
+			print.at(1, 1, 'inputKey 0.9.0');
+			print.color(5, 1);
+			print.at(1, 2, 'move with WASD or arrows');
+
+			// INKEY$ readout
+			print.color(7, 1);
+			print.at(1, 4, 'inkey$: ');
+			print.color(6, 1);
+			var k = input.inkey();
+			print.at(9, 4, k === '' ? '(none)' : '"' + k + '"     ');
+
+			// MultiKeys readout for the movement + fire set
+			var m = input.multikeys(K.UP, K.DOWN, K.LEFT, K.RIGHT, K.SPACE, K.SHIFT);
+			print.color(7, 1);
+			print.at(1, 6, 'multikeys:');
+			function flag(label, on, row) {
+				print.color(on ? 4 : 0, on ? 6 : 1);
+				print.at(1, row, ' ' + label + ' ');
+			}
+			flag('UP   ',   m[K.UP],    8);
+			flag('DOWN ',   m[K.DOWN],  9);
+			flag('LEFT ',   m[K.LEFT],  10);
+			flag('RIGHT',   m[K.RIGHT], 11);
+			flag('SPACE',   m[K.SPACE], 12);
+			flag('SHIFT',   m[K.SHIFT], 13);
+
+			print.color(5, 1);
+			print.at(9, 8,  'mask = 0b' + m.mask.toString(2).padStart(6, '0'));
+			print.at(9, 9,  'any  = ' + m.any);
+			print.at(9, 10, 'all  = ' + m.all);
+
+			// Sprite
+			print.color(4, 1);
+			print.at(sprite.x, sprite.y, sprite.ch);
+
+			// Status bar for the HTML panel
+			var held = input.multikeys();
+			document.getElementById('statusLine').textContent =
+				'inkey$=' + (k === '' ? '""' : '"' + k + '"') +
+				'   held=[' + held.join(', ') + ']';
+		}
+
+		// Game loop: poll input and redraw
+		function tick() {
+			var m = input.multikeys(K.UP, K.DOWN, K.LEFT, K.RIGHT);
+			if (m[K.UP]    && sprite.y > 1)           { sprite.y -= 1; }
+			if (m[K.DOWN]  && sprite.y < screen.rows) { sprite.y += 1; }
+			if (m[K.LEFT]  && sprite.x > 1)           { sprite.x -= 1; }
+			if (m[K.RIGHT] && sprite.x < screen.cols) { sprite.x += 1; }
+
+			// Also accept WASD via code (layout-independent)
+			var w = input.multikeys(K.W, K.A, K.S, K.D);
+			if (w[K.W] && sprite.y > 1)           { sprite.y -= 1; }
+			if (w[K.S] && sprite.y < screen.rows) { sprite.y += 1; }
+			if (w[K.A] && sprite.x > 1)           { sprite.x -= 1; }
+			if (w[K.D] && sprite.x < screen.cols) { sprite.x += 1; }
+
+			// Space = change glyph briefly for a little visual feedback
+			sprite.ch = input.multikeys(K.SPACE)[K.SPACE] ? '*' : '@';
+
+			repaint();
+		}
+		// Move at ~8 Hz so the sprite is visible on each step
+		setInterval(tick, 125);
+		repaint();
+
+		// --- getkey demo -------------------------------------------------
+		var getKeyResult = document.getElementById('getKeyResult');
+		document.getElementById('getKeyBtn').onclick = function () {
+			getKeyResult.textContent = '(press any key...)';
+			input.getkey().then(function (k) {
+				getKeyResult.textContent = 'got key="' + k.key + '" code="' + k.code + '"';
+			});
+		};
+	</script>
+</body>
+</html>
