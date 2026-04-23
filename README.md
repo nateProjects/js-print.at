@@ -107,45 +107,6 @@ The grid overlay is repainted after every `print.at` / `print.line` / `clear` wh
 
 `screen.cls(ink, paper)` is just `screen.color(ink, paper)` followed by `screen.clear()`, matching the BASIC `CLS` idiom. Both args are optional — `screen.cls()` clears with the current screen colors.
 
-**What's new in 1.0.0**
-
-* Added `screen.cls(ink, paper)` — ink/paper-aware clear shortcut
-* Added `screen.grid(on, color)` — 1-pixel cell-grid overlay
-* Added `screen.border(color, thickness)` — surrounding border area; canvas grows to accommodate, print coords stay 1-indexed inside the border
-* `screen.clear` paints the border first, then the print area
-* All 1.0 plan items shipped (cls, grid, border)
-
-**What was new in 0.9.0**
-
-* Added `resolution` to each profile and a `screen.size('preset')` lookup
-* Added `screen.scale(n)` for backbuffer multiplication (default 2)
-* `screen.size` in preset mode auto-fits the font to the cell grid
-* Exposed `screen.cols`, `screen.rows`, `screen.nativeWidth`, `screen.nativeHeight`
-* `screen.size()` with no args re-applies the active palette's resolution if any
-
-**What was new in 0.8.0**
-
-* Added `screen.palette` and a registry of bundled retro profiles
-* Added `screen.color` (screen-default ink/paper, applied on clear)
-* Added `print.color` (ink/paper for subsequent prints)
-* `screen.clear` paints with the screen paper instead of `clearRect`
-* `print.at` / `print.line` paint a paper rect behind text
-* Coordinates are now true 1-indexed cells; `(1,1)` is the top-left character cell
-
-**What was new in 0.6.0**
-
-* Fixed `screen.clear()` - canvas & context now held in module scope
-* Fixed canvas font string - includes `"px"` so font size actually applies
-* Fixed `print.line()` - draws on the canvas (no more `document.write`)
-* Moved off the `screen` / `print` browser globals onto a `pbasic` namespace
-* Cached the 2D context once in `screen.size()`
-* `screen.size()` accepts defaults of 640x480
-
-**Plans**
-
-* 1.0 - DONE: `screen.cls` (ink/paper args), `screen.grid` (cell overlay), `screen.border` (configurable surround)
-* 1.1+ - Bitmap fonts (Spectrum ROM 8x8 etc.) for true-pixel `screen.scale(1)` rendering, multi-mode resolutions per machine, JSLint pass
-
 ---
 
 ## inputKey (companion library)
@@ -195,15 +156,45 @@ Keyboard input to sit alongside print output. Drop it in next to `printAt` — i
 
 [1.0.0 interactive demo](https://raw.githack.com/nate2squared/print.At/master/printAt.1.0.0.min.example.html)
 
-[0.9.0 test version (legacy)](https://raw.githack.com/nate2squared/print.At/master/printAt.0.9.0.min.example.html)
 
-[0.8.0 test version (legacy)](https://raw.githack.com/nate2squared/print.At/master/printAt.0.8.0.min.example.html)
+**What's new in 1.0.0**
 
-[0.6.0 test version (legacy)](https://raw.githack.com/nate2squared/print.At/master/printAt.0.6.0.min.example.html)
+* Added `screen.cls(ink, paper)` — ink/paper-aware clear shortcut
+* Added `screen.grid(on, color)` — 1-pixel cell-grid overlay
+* Added `screen.border(color, thickness)` — surrounding border area; canvas grows to accommodate, print coords stay 1-indexed inside the border
+* `screen.clear` paints the border first, then the print area
+* All 1.0 plan items shipped (cls, grid, border)
 
-[0.4.0 test version (legacy)](https://rawgit.com/nate2squared/print.At/master/printAt.0.4.0.min.example.html)
+**What was new in 0.9.0**
 
-[0.2.0 test version (legacy)](https://rawgit.com/nate2squared/print.At/master/printAt.0.2.0.min.example.html)
+* Added `resolution` to each profile and a `screen.size('preset')` lookup
+* Added `screen.scale(n)` for backbuffer multiplication (default 2)
+* `screen.size` in preset mode auto-fits the font to the cell grid
+* Exposed `screen.cols`, `screen.rows`, `screen.nativeWidth`, `screen.nativeHeight`
+* `screen.size()` with no args re-applies the active palette's resolution if any
+
+**What was new in 0.8.0**
+
+* Added `screen.palette` and a registry of bundled retro profiles
+* Added `screen.color` (screen-default ink/paper, applied on clear)
+* Added `print.color` (ink/paper for subsequent prints)
+* `screen.clear` paints with the screen paper instead of `clearRect`
+* `print.at` / `print.line` paint a paper rect behind text
+* Coordinates are now true 1-indexed cells; `(1,1)` is the top-left character cell
+
+**What was new in 0.6.0**
+
+* Fixed `screen.clear()` - canvas & context now held in module scope
+* Fixed canvas font string - includes `"px"` so font size actually applies
+* Fixed `print.line()` - draws on the canvas (no more `document.write`)
+* Moved off the `screen` / `print` browser globals onto a `pbasic` namespace
+* Cached the 2D context once in `screen.size()`
+* `screen.size()` accepts defaults of 640x480
+
+**Plans**
+
+* 1.0 - DONE: `screen.cls` (ink/paper args), `screen.grid` (cell overlay), `screen.border` (configurable surround)
+* 1.1+ - Bitmap fonts (Spectrum ROM 8x8 etc.) for true-pixel `screen.scale(1)` rendering, multi-mode resolutions per machine, JSLint pass
 
 **Acknowledgements**
 
