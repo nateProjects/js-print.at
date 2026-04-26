@@ -99,6 +99,9 @@
 	var _borderThickness = 0;        // native pixels per side (pre-scale)
 	var _borderColor     = 0;        // palette index or CSS string
 
+	// 1.1 additions
+	var _glyphs = {};                // map of character -> bitmap row bytes
+
 	// --- public objects --------------------------------------------------
 	var screen = {};
 	var print  = {};
@@ -306,31 +309,116 @@
 	};
 
 	// --- text drawing ----------------------------------------------------
+	function _drawGlyph(px, py, bytes, inkCss) {
+		// Bitmap glyph: array of N bytes, each byte = 8 horizontal pixels,
+		// MSB = leftmost. Spectrum UDG convention. Pixel size derives from
+		// the current cell size so glyphs scale with the active resolution.
+		var rows = bytes.length;
+		var pxw  = _cellW / 8;
+		var pxh  = _cellH / rows;
+		_ctx.fillStyle = inkCss;
+		for (var r = 0; r < rows; r++) {
+			var byte = bytes[r] | 0;
+			for (var c = 0; c < 8; c++) {
+				if (byte & (0x80 >> c)) {
+					_ctx.fillRect(
+						Math.floor(px + c * pxw),
+						Math.floor(py + r * pxh),
+						Math.ceil(pxw),
+						Math.ceil(pxh)
+					);
+				}
+			}
+		}
+	}
+
 	function _drawText(x, y, text) {
 		var b = _borderPx();
 		var px = (x - 1) * _cellW + b;
 		var py = (y - 1) * _cellH + b;
 		_ctx.fillStyle = _resolveColor(_printPaper);
 		_ctx.fillRect(px, py, _cellW * text.length, _cellH);
-		_ctx.fillStyle = _resolveColor(_printInk);
-		_ctx.fillText(text, px, py);
+
+		var inkCss = _resolveColor(_printInk);
+		// If any character in the run has a registered bitmap glyph,
+		// draw cell-by-cell so glyphs and font characters can mix freely.
+		var hasGlyph = false;
+		for (var i = 0; i < text.length; i++) {
+			if (_glyphs[text.charAt(i)]) { hasGlyph = true; break; }
+		}
+		if (hasGlyph) {
+			_ctx.fillStyle = inkCss;
+			for (var j = 0; j < text.length; j++) {
+				var ch = text.charAt(j);
+				var cx = px + j * _cellW;
+				if (_glyphs[ch]) {
+					_drawGlyph(cx, py, _glyphs[ch], inkCss);
+				} else {
+					_ctx.fillStyle = inkCss;
+					_ctx.fillText(ch, cx, py);
+				}
+			}
+		} else {
+			_ctx.fillStyle = inkCss;
+			_ctx.fillText(text, px, py);
+		}
 		if (_gridOn) { _drawGrid(); }
 	}
 
-	print.at = function (x, y, text) {
+	// Shared helper: temporarily override print ink/paper for one draw,
+	// then restore. Matches Spectrum's per-statement PAPER/INK semantics
+	// (inline color args don't stick — the persistent defaults stay put).
+	function _withScopedColor(ink, paper, fn) {
+		if (typeof ink === 'undefined' && typeof paper === 'undefined') {
+			fn();
+			return;
+		}
+		var savedInk   = _printInk;
+		var savedPaper = _printPaper;
+		if (typeof ink   !== 'undefined') { _printInk   = ink; }
+		if (typeof paper !== 'undefined') { _printPaper = paper; }
+		try { fn(); }
+		finally {
+			_printInk   = savedInk;
+			_printPaper = savedPaper;
+		}
+	}
+
+	// print.at(x, y, text)              - uses the persistent print ink/paper
+	// print.at(x, y, text, ink)         - one-shot ink override
+	// print.at(x, y, text, ink, paper)  - one-shot ink + paper override
+	// The ink/paper args are local to this call — they do not modify the
+	// persistent print.color state, mirroring BASIC's
+	//     PRINT AT y, x ; PAPER p ; INK i ; "text"
+	// behaviour (per-statement attributes).
+	print.at = function (x, y, text, ink, paper) {
 		if (!_ctx) { return; }
 		text = (typeof text !== 'undefined') ? String(text) : "";
-		_drawText(x, y, text);
+		_withScopedColor(ink, paper, function () { _drawText(x, y, text); });
 		_cursorX = x + text.length;
 		_cursorY = y;
 	};
 
-	print.line = function (text) {
+	// print.line(text)              - uses the persistent print ink/paper
+	// print.line(text, ink)         - one-shot ink override
+	// print.line(text, ink, paper)  - one-shot ink + paper override
+	print.line = function (text, ink, paper) {
 		if (!_ctx) { return; }
 		text = (typeof text !== 'undefined') ? String(text) : "";
-		_drawText(_cursorX, _cursorY, text);
+		var cx = _cursorX, cy = _cursorY;
+		_withScopedColor(ink, paper, function () { _drawText(cx, cy, text); });
 		_cursorX = 1;
 		_cursorY += 1;
+	};
+
+	// print.basicAt(y, x, text, [ink], [paper])
+	// Spectrum BASIC-style alias: y first, 0-indexed. Lets a line-by-line
+	// port keep coordinates identical to the BASIC source. New code should
+	// prefer print.at; basicAt exists purely for porting ergonomics.
+	//     BASIC:  PRINT AT 5, 9 ; PAPER 7 ; INK 0 ; "Q - Up"
+	//     pbasic: print.basicAt(5, 9, "Q - Up", 0, 7);
+	print.basicAt = function (y, x, text, ink, paper) {
+		print.at(x + 1, y + 1, text, ink, paper);
 	};
 
 	// --- grid overlay ----------------------------------------------------
@@ -415,6 +503,56 @@
 			_drawBorder();
 		}
 		return { color: _borderColor, thickness: _borderThickness };
+	};
+
+	// --- bitmap glyphs (UDG analogue) ------------------------------------
+	// screen.glyph(code, bytes)  - register an N x 8 bitmap for `code`
+	// screen.glyph(code, null)   - remove a previously registered glyph
+	// screen.glyph(code)         - return the bytes registered for `code`,
+	//                              or undefined
+	// screen.glyph()             - return all registered codes
+	//
+	// `code` is either a single character string ("A", "@") or a numeric
+	// codepoint (144 for the first Spectrum UDG, etc.). `bytes` is an
+	// array of integers, one byte per row, MSB = leftmost pixel — the
+	// Spectrum UDG convention. The glyph kicks in any time that character
+	// appears in a print.at / print.line run, drawn in the current ink
+	// over the current paper, scaled to the active cell size.
+	//
+	//     screen.glyph(144, [60, 66, 129, 129, 129, 129, 66, 60]);
+	//     var S = String.fromCharCode(144);
+	//     print.at(10, 5, S, 0, 7);
+	function _glyphKey(code) {
+		if (typeof code === 'number') { return String.fromCharCode(code); }
+		if (typeof code === 'string' && code.length > 0) { return code.charAt(0); }
+		return null;
+	}
+
+	screen.glyph = function (code, bytes) {
+		if (arguments.length === 0) {
+			var keys = [];
+			for (var k in _glyphs) {
+				if (Object.prototype.hasOwnProperty.call(_glyphs, k)) { keys.push(k); }
+			}
+			return keys;
+		}
+		var key = _glyphKey(code);
+		if (key === null) {
+			_warn('pbasic: screen.glyph code must be a character or codepoint');
+			return;
+		}
+		if (arguments.length === 1) {
+			return _glyphs[key] ? _glyphs[key].slice() : undefined;
+		}
+		if (bytes === null || typeof bytes === 'undefined') {
+			delete _glyphs[key];
+			return;
+		}
+		if (Object.prototype.toString.call(bytes) !== '[object Array]') {
+			_warn('pbasic: screen.glyph bytes must be an array of integers');
+			return;
+		}
+		_glyphs[key] = bytes.slice();
 	};
 
 	// --- export ----------------------------------------------------------

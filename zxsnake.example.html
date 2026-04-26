@@ -1,0 +1,242 @@
+<!doctype html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>ZXSnake - pbasic port</title>
+    <script src="printAt.1.0.0.js"></script>
+    <script src="inputKey.0.9.0.js"></script>
+    <script src="dimArray.0.9.0.js"></script>
+    <style>
+        body { font-family: sans-serif; margin: 16px; background: #f4f4f4; color: #222; }
+        h1   { margin: 0 0 4px 0; font-size: 18px; }
+        p    { margin: 0 0 12px 0; color: #555; font-size: 13px; }
+    </style>
+</head>
+<body>
+    <h1>ZXSnake</h1>
+    <p>Click the canvas (to give it focus), then press any key to start. Q / A / O / P to steer.</p>
+    <div id="stage"></div>
+
+    <script>
+    // -----------------------------------------------------------------
+    // Aliases - keeps the body of the program close to the BASIC source
+    // -----------------------------------------------------------------
+    var screen = pbasic.screen,
+        print  = pbasic.print,
+        input  = pbasic.input,
+        dim    = pbasic.dim;
+
+    screen.palette ('spectrum');
+    screen.size    ('spectrum');     // 32 x 24 cells, 256x192 native
+    screen.scale   (3);
+    document.getElementById('stage').appendChild(screen.canvas);
+
+    // -----------------------------------------------------------------
+    // 70-74  REM UDG - register the two Spectrum sprites as bitmap glyphs
+    // -----------------------------------------------------------------
+    screen.glyph (144, [ 60,  66, 129, 129, 129, 129,  66,  60]);   // snake head (circle)
+    screen.glyph (145, [ 24,  60,  60,  60, 126, 251, 247, 126]);   // fruit
+    var S = String.fromCharCode(144);                               // CHR$(144)
+    var F = String.fromCharCode(145);                               // CHR$(145)
+
+    function rndInt (n) { return Math.floor(Math.random() * n) + 1; }
+    function printPad (x, y, value, width, ink, paper) {
+        var t = String(value);
+        while (t.length < width) t += ' ';
+        print.at(x, y, t, ink, paper);
+    }
+
+    // -----------------------------------------------------------------
+    // 75-95   Variable / array declaration
+    // -----------------------------------------------------------------
+    var p = dim([23, 34]);           // DIM p(23,34) AS UBYTE  - screen
+    var x = dim([23, 34]);           // DIM x(23,34) AS UBYTE  - x-orient
+    var y = dim([23, 34]);           // DIM y(23,34) AS UBYTE  - y-orient
+
+    var headx, heady, tailx, taily;
+    var orientationx, orientationy;
+    var score, eaten;
+    var maxx = 33, maxy = 22, minx = 0, miny = 0;
+    var fruitx, fruity;
+
+    // -----------------------------------------------------------------
+    // 50 - 61   Title screen + "press any key"
+    // print.basicAt(y, x, text, ink, paper) keeps the BASIC source
+    // line-numbers and coordinates 1:1 with the Spectrum original.
+    // -----------------------------------------------------------------
+    async function titleScreen () {
+        screen.border (7);
+        screen.cls    (0, 7);                                           // PAPER 7 : INK 0 : CLS
+
+        print.basicAt ( 3, 13, "ZXSnake",                    7, 1);
+        print.basicAt ( 5,  9, "Q - Up",                     0, 7);
+        print.basicAt ( 6,  9, "A - Down",                   0, 7);
+        print.basicAt ( 7,  9, "O - Left",                   0, 7);
+        print.basicAt ( 8,  9, "P - Right",                  0, 7);
+        print.basicAt (10,  3, "You have to pick up every",  0, 7);
+        print.basicAt (11,  3, "fruit on the screen while",  0, 7);
+        print.basicAt (12,  3, "growing up more and more...",0, 7);
+        print.basicAt (15,  3, "Press any key to start",     0, 7);
+
+        await input.getkey();                                           // 60-61: wait for INKEY$
+    }
+
+    // -----------------------------------------------------------------
+    // 100 - 250  Variable definition + array clear
+    // -----------------------------------------------------------------
+    function initState () {
+        headx = 11; heady = 5;
+        tailx =  5; taily = 5;
+        orientationx = 1; orientationy = 0;
+
+        for (var c = 1; c <= 23; c++) {
+            for (var f = 1; f <= 34; f++) {
+                p.set(c, f, 0);
+                x.set(c, f, 0);
+                y.set(c, f, 0);
+            }
+        }
+        score = 0;
+        eaten = 0;
+    }
+
+    // -----------------------------------------------------------------
+    // 1000 - 1100  Screen init (border, score line, wall map)
+    // -----------------------------------------------------------------
+    function drawScreen () {
+        screen.border (1);
+        screen.cls    ();
+        print.basicAt (21, 0, " SCORE :                       ", 7, 1);
+
+        var c, f;
+        for (c = minx; c <= maxx; c++) {
+            p.set(miny + 1, c + 1, 4);
+            p.set(maxy + 1, c + 1, 4);
+        }
+        for (f = miny; f <= maxy; f++) {
+            p.set(f + 1, minx + 1, 4);
+            p.set(f + 1, maxx + 1, 4);
+        }
+    }
+
+    // -----------------------------------------------------------------
+    // 8000 - 8070  Fruit placement (GOSUB)
+    // -----------------------------------------------------------------
+    function placeFruit () {
+        do {
+            fruitx = rndInt(30);
+            fruity = rndInt(20);
+        } while (p.get(fruity + 2, fruitx + 2) !== 0);
+
+        print.basicAt (fruity, fruitx, F, 2, 7);
+        p.set (fruity + 2, fruitx + 2, 1);
+    }
+
+    // -----------------------------------------------------------------
+    // 2000 - 2057  Initial snake draw
+    // -----------------------------------------------------------------
+    function drawSnake () {
+        for (var c = tailx; c <= headx - 1; c++) {
+            print.basicAt (taily, c, "O", 0, 7);
+            p.set (taily + 2, c + 2, 3);
+            x.set (taily + 2, c + 2, 1);
+            y.set (taily + 2, c + 2, 0);
+        }
+        print.basicAt (heady, headx, S, 0, 7);
+        p.set (heady + 2, headx + 2, 2);
+        x.set (heady + 2, headx + 2, 1);
+        y.set (heady + 2, headx + 2, 0);
+    }
+
+    // -----------------------------------------------------------------
+    // 8100 - 8190  Erase tail (GOSUB)
+    // -----------------------------------------------------------------
+    function eraseTail () {
+        print.basicAt (taily, tailx, " ", 0, 7);
+
+        var nx = tailx + x.get(taily + 2, tailx + 2);
+        var ny = taily + y.get(taily + 2, tailx + 2);
+        p.set (taily + 2, tailx + 2, 0);
+        x.set (taily + 2, tailx + 2, 0);
+        y.set (taily + 2, tailx + 2, 0);
+        tailx = nx; taily = ny;
+    }
+
+    // -----------------------------------------------------------------
+    // 3200 - 3250  Read keyboard (INKEY$)
+    // -----------------------------------------------------------------
+    function readKeys () {
+        var k = input.inkey();
+        if (orientationx <  1 && (k === 'O' || k === 'o')) { orientationx = -1; orientationy =  0; }
+        if (orientationx > -1 && (k === 'P' || k === 'p')) { orientationx =  1; orientationy =  0; }
+        if (orientationy <  1 && (k === 'Q' || k === 'q')) { orientationx =  0; orientationy = -1; }
+        if (orientationy > -1 && (k === 'A' || k === 'a')) { orientationx =  0; orientationy =  1; }
+    }
+
+    // -----------------------------------------------------------------
+    // 3000 - 7998  Main game loop (was GOTO 3000)
+    // -----------------------------------------------------------------
+    var STEP_MS = 80;
+
+    async function gameLoop () {
+        while (true) {
+            // 3015-3035  Mark old head as body
+            x.set (heady + 2, headx + 2, orientationx);
+            y.set (heady + 2, headx + 2, orientationy);
+            print.basicAt (heady, headx, "O", 0, 7);
+            p.set (heady + 2, headx + 2, 3);
+
+            // 3040-3045  Move head
+            headx += orientationx;
+            heady += orientationy;
+
+            // 3050-3051  Collision / fruit check
+            var cell = p.get(heady + 2, headx + 2);
+            if (cell > 1)  { return gameOver(); }
+            if (cell === 1) {
+                score += 10;
+                printPad (11, 22, score, 20, 7, 1);
+                eaten = 1;
+                placeFruit();
+            }
+
+            // 3055-3080  Draw new head, drag tail unless we just ate
+            print.basicAt (heady, headx, S, 0, 7);
+            p.set (heady + 2, headx + 2, 2);
+            if (eaten === 0) eraseTail();
+            eaten = 0;
+
+            readKeys();
+            await input.pause(STEP_MS);                                 // 3500-3510  pause / delay
+        }
+    }
+
+    // -----------------------------------------------------------------
+    // 9900 - 9960  Game over
+    // -----------------------------------------------------------------
+    async function gameOver () {
+        print.basicAt (10, 12, "GAME OVER...",        2, 7);
+        print.basicAt (11, 10, "SCORE : " + score,    2, 7);
+        print.basicAt (13, 10, "Press any key",       0, 7);
+
+        await input.pause(400);                                          // mandatory pause
+        await input.getkey();
+        main();                                                          // GOTO 100
+    }
+
+    // -----------------------------------------------------------------
+    // Top-level driver - replaces the implicit BASIC line ordering
+    // -----------------------------------------------------------------
+    async function main () {
+        await titleScreen();    // 50-61
+        initState();            // 100-250
+        drawScreen();           // 1000-1100
+        placeFruit();           // 1500  (GOSUB 8000)
+        drawSnake();            // 2000-2057
+        gameLoop();             // 3000+
+    }
+
+    main();
+    </script>
+</body>
+</html>

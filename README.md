@@ -30,7 +30,12 @@ For a future Pseudo-Basic project.
 
     print.color (2, 6);                 // ink, paper for subsequent prints
     print.at    (x, y, "text");         // cell coords (1-indexed, 1,1 = top-left)
+    print.at    (x, y, "text", 7, 1);   // one-shot ink/paper, persistent state untouched
     print.line  ("text");               // draw at cursor, advance a row
+    print.line  ("text", 7, 1);         // one-shot ink/paper
+
+    // Spectrum BASIC-style coords: y first, 0-indexed (for line-by-line ports)
+    print.basicAt (5, 9, "Q - Up", 0, 7);   // PRINT AT 5, 9 ; INK 0 ; PAPER 7 ; "Q - Up"
 </script>
 ```
 
@@ -107,6 +112,46 @@ The grid overlay is repainted after every `print.at` / `print.line` / `clear` wh
 
 `screen.cls(ink, paper)` is just `screen.color(ink, paper)` followed by `screen.clear()`, matching the BASIC `CLS` idiom. Both args are optional — `screen.cls()` clears with the current screen colors.
 
+**Inline ink / paper on `print.at` and `print.line` (1.1.0)**
+
+The 4th and 5th args of `print.at` / `print.line` apply ink and paper for that draw only — they do *not* modify the persistent `print.color` state. This mirrors Spectrum BASIC's per-statement attributes (`PRINT AT y, x ; PAPER p ; INK i ; "text"`), where inline colors are local to the statement and the running defaults stay put.
+
+```js
+print.color (0, 7);                       // persistent default
+print.at    (1, 1, "normal");             // ink 0 on paper 7
+print.at    (1, 2, "highlight", 7, 1);    // one-shot: ink 7 on paper 1
+print.at    (1, 3, "still normal");       // back to ink 0 on paper 7 - state preserved
+```
+
+To change the running defaults, keep using `print.color(ink, paper)`.
+
+**`print.basicAt` (1.1.0)**
+
+```js
+print.basicAt (y, x, "text");             // PRINT AT y, x ; "text"
+print.basicAt (y, x, "text", ink, paper); // PRINT AT y, x ; INK i ; PAPER p ; "text"
+```
+
+Convenience alias for line-by-line ports of Spectrum BASIC source: `y` first, 0-indexed. Internally it just calls `print.at(x + 1, y + 1, text, ink, paper)`. New code should prefer `print.at`; `basicAt` exists so a port can keep its coordinates and ordering identical to the BASIC original for diffing.
+
+**Bitmap glyphs / UDG (1.1.0)**
+
+```js
+screen.glyph (144, [60, 66, 129, 129, 129, 129, 66, 60]);   // Spectrum-style 8x8 sprite
+screen.glyph ('@',  [/* ... */]);                            // string codes work too
+
+var S = String.fromCharCode(144);
+print.at (10, 5, S, 0, 7);                // draws the bitmap in ink 0 on paper 7
+
+screen.glyph (144);                        // -> bytes array, or undefined
+screen.glyph ();                           // -> array of every registered code
+screen.glyph (144, null);                  // remove a registration
+```
+
+`screen.glyph(code, bytes)` registers a bitmap for a character. `bytes` is an array of integers — one byte per row, MSB = leftmost pixel — the Spectrum UDG byte format (`POKE UINTEGER 23675, @udg(0,0)`). The glyph kicks in any time that character appears in a `print.at` / `print.line` run, drawn in the current ink over the current paper, scaled to the active cell size. Mix freely with regular font characters in the same string.
+
+The bitmap is N rows by 8 columns — typically 8x8, but other row counts work (e.g. 16-row tall sprites if your cell height accommodates them).
+
 ---
 
 ## inputKey (companion library)
@@ -142,6 +187,10 @@ Keyboard input to sit alongside print output. Drop it in next to `printAt` — i
     var K = input.keys;
     input.multikeys(K.UP, K.A, K.SPACE);
     // K.SHIFT / K.CTRL / K.ALT / K.META match either left or right.
+
+    // PAUSE n analogue - returns a Promise that resolves after `ms` ms.
+    // Designed for use with await inside async game loops:
+    await input.pause(80);
 </script>
 ```
 
@@ -156,8 +205,72 @@ Keyboard input to sit alongside print output. Drop it in next to `printAt` — i
 
 [1.0.0 interactive demo](https://raw.githack.com/nate2squared/print.At/master/printAt.1.0.0.min.example.html)
 
+---
 
-**What's new in 1.0.0**
+## dimArray (companion library)
+
+ZX Spectrum-style `DIM` arrays for JavaScript: 1-indexed numeric arrays and fixed-length string arrays, with the Spectrum's Procrustean string semantics. Independent of `printAt` and `inputKey`, just attaches to the same `pbasic` namespace.
+
+```html
+<script src="dimArray.0.9.0.min.js"></script>
+<script>
+    var dim = pbasic.dim, dimString = pbasic.dimString;
+
+    // Numeric: DIM A(12)
+    var A = dim([12]);
+    A.set([5], 42);                  // LET A(5) = 42  (array form)
+    A.set(5, 42);                    // LET A(5) = 42  (varargs form, 1.1)
+    A.get([5]);                      // 42             (array form)
+    A.get(5);                        // 42             (varargs form, 1.1)
+    A.get([1]);                      // 0   (default)
+    A.get([0]);                      // throws - 1-indexed
+    A.get([13]);                     // throws
+
+    // 2D numeric: DIM B(3,6)
+    var B = dim([3, 6]);
+    B.set([2, 4], 99);               // array form
+    B.set(2, 4, 99);                 // varargs form (1.1) - reads like LET B(2,4) = 99
+
+    // Single fixed string: DIM S$(10)
+    var S = dimString([10]);
+    S.set([], 'hello');              // LET S$ = "hello"      -> "hello     "
+    S.get([]);                       // "hello     "  (Procrustean pad)
+    S.get([3]);                      // "l"           (S$(3),     1-indexed char)
+    S.get([[3, 5]]);                 // "llo"         (S$(3 TO 5), inclusive slice)
+
+    // String array: DIM A$(5,10)  (5 strings, each 10 chars)
+    var AS = dimString([5, 10]);
+    AS.set([2], '1234567890');       // LET A$(2) = "1234567890"
+    AS.get([2, 7]);                  // "7"           (A$(2,7), single char)
+    AS.get([2, [4, 8]]);             // "45678"       (A$(2)(4 TO 8), slice)
+    AS.set([2, [3, 5]], 'XYZ');      // partial replace, A$(2)(3 TO 5) = "XYZ"
+    AS.set([2, 4], 'Q');             // single char, A$(2,4) = "Q"
+
+    AS.dims;                         // [5, 10]
+    AS.length;                       // 10  (declared char length)
+</script>
+```
+
+**Design notes**
+
+* Both `dim` and `dimString` are strictly 1-indexed - subscript 0 throws, as does anything past the declared dimension. Storage allocates `N+1` slots per dimension under the hood so the user-visible math stays clean.
+* Strings are *Procrustean*: assigning a value shorter than the declared length pads with spaces, longer truncates. This matches Spectrum BASIC's behaviour for fixed-length strings.
+* Slice subscripts use `[from, to]` (inclusive, 1-indexed) to mirror BASIC's `A$(from TO to)`.
+* For string arrays the **last** entry of `dims` is always the per-string char length - same convention as `DIM A$(5,10)` in BASIC.
+* `dim` exposes `.raw` (the underlying nested array; index 0 unused) for places where you want to iterate without the get/set overhead. Mutating it bypasses bounds checking, so prefer `set` / `get` outside hot loops.
+
+[dimArray 0.9.0 demo](https://raw.githack.com/nate2squared/print.At/master/dimArray.0.9.0.min.example.html)
+
+
+**What's new in 1.1.0**
+
+* Added `print.at(x, y, text, ink, paper)` and `print.line(text, ink, paper)` overloads — one-shot ink/paper that doesn't disturb the persistent `print.color` defaults; collapses every `print.color(...)` + `print.at(...)` pair into a single statement
+* Added `print.basicAt(y, x, text, [ink], [paper])` — Spectrum-style alias (y first, 0-indexed) for line-by-line BASIC ports
+* Added `screen.glyph(code, bytes)` — register N x 8 bitmap characters in Spectrum UDG byte format; closes the gap that previously had no workaround
+* `inputKey` 0.9.x — added `input.pause(ms)`, a promise-returning `PAUSE n` analogue for use with `await` inside async game loops
+* `dimArray` 0.9.x — added varargs form on `set` / `get`: `A.set(5, 42)` / `B.set(2, 4, 99)` alongside the array form, mirroring BASIC's `LET A(5) = 42` / `LET B(2,4) = 99`
+
+**What was new in 1.0.0**
 
 * Added `screen.cls(ink, paper)` — ink/paper-aware clear shortcut
 * Added `screen.grid(on, color)` — 1-pixel cell-grid overlay
@@ -194,7 +307,9 @@ Keyboard input to sit alongside print output. Drop it in next to `printAt` — i
 **Plans**
 
 * 1.0 - DONE: `screen.cls` (ink/paper args), `screen.grid` (cell overlay), `screen.border` (configurable surround)
-* 1.1+ - Bitmap fonts (Spectrum ROM 8x8 etc.) for true-pixel `screen.scale(1)` rendering, multi-mode resolutions per machine, JSLint pass
+* 1.1 - DONE: inline ink/paper on `print.at` / `print.line`, `print.basicAt` Spectrum-coord alias, `screen.glyph` bitmap UDGs, `input.pause`, `dim.set` / `dim.get` varargs
+* 1.2+ - Bitmap fonts (Spectrum ROM 8x8 etc.) bundled out of the box for true-pixel `screen.scale(1)` rendering, multi-mode resolutions per machine, JSLint pass
+* `dimArray` 0.9.x - 1-indexed `DIM` arrays (numeric + Procrustean fixed-length strings) shipped as a separate companion file; earns 1.0 after a wider testing pass
 
 **Acknowledgements**
 

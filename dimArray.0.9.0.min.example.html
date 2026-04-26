@@ -1,0 +1,211 @@
+<!doctype html>
+<html>
+<head>
+	<meta charset="utf-8">
+	<title>dimArray 0.9.0 example</title>
+	<script src="printAt.1.0.0.min.js"></script>
+	<script src="dimArray.0.9.0.min.js"></script>
+	<style>
+		body { font-family: sans-serif; margin: 16px; background: #f4f4f4; color: #222; }
+		h1 { margin: 0 0 4px 0; font-size: 18px; }
+		p.lead { margin: 0 0 12px 0; color: #555; font-size: 13px; }
+		#stage { position: relative; min-height: 480px; }
+		#screenCanvas { position: static !important; display: block; margin: 0 0 16px 0; box-shadow: 0 2px 6px rgba(0,0,0,0.2); }
+		.panels { display: flex; flex-wrap: wrap; gap: 16px; }
+		.panel { background: #fff; border: 1px solid #ddd; border-radius: 6px; padding: 10px 12px; min-width: 260px; }
+		.panel h2 { font-size: 13px; margin: 0 0 6px 0; color: #444; text-transform: uppercase; letter-spacing: 0.5px; }
+		.row { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0; align-items: center; }
+		button { font: 12px/1 sans-serif; padding: 4px 8px; border: 1px solid #bbb; border-radius: 4px; background: #fafafa; cursor: pointer; }
+		button:hover { background: #eee; }
+		code { font-family: Menlo, Consolas, monospace; background: #eee; padding: 1px 4px; border-radius: 3px; }
+		pre { font: 12px Menlo, Consolas, monospace; background: #fafafa; border: 1px solid #eee; padding: 8px; border-radius: 4px; max-height: 200px; overflow: auto; }
+	</style>
+</head>
+<body>
+	<h1>dimArray 0.9.0 demo</h1>
+	<p class="lead">
+		BASIC-style 1-indexed arrays. <code>pbasic.dim</code> for numerics
+		(<code>DIM A(N)</code>), <code>pbasic.dimString</code> for fixed-length
+		strings (<code>DIM A$(M,N)</code>). Out-of-range subscripts throw.
+		The canvas runs a small Sieve of Eratosthenes through a numeric DIM and
+		drops the names of bundled palettes into a string DIM.
+	</p>
+
+	<div id="stage"></div>
+
+	<div class="panels">
+		<div class="panel">
+			<h2>poke a numeric cell</h2>
+			<div class="row">
+				<label>idx <input id="numIdx" type="number" value="3" min="1" max="12" style="width: 60px;"></label>
+				<label>val <input id="numVal" type="number" value="42" style="width: 80px;"></label>
+				<button id="numSet">A(idx) = val</button>
+			</div>
+			<div class="row" style="font: 12px monospace;">
+				<span id="numState">A = ?</span>
+			</div>
+		</div>
+		<div class="panel">
+			<h2>poke a string cell</h2>
+			<div class="row">
+				<label>idx <input id="strIdx" type="number" value="2" min="1" max="6" style="width: 60px;"></label>
+				<label>val <input id="strVal" type="text" value="hello" style="width: 120px;"></label>
+				<button id="strSet">A$(idx) = val</button>
+			</div>
+			<div class="row" style="font: 12px monospace;">
+				<pre id="strState"></pre>
+			</div>
+		</div>
+		<div class="panel">
+			<h2>caught errors</h2>
+			<pre id="errState">(none yet)</pre>
+		</div>
+	</div>
+
+	<script>
+		var screen = pbasic.screen, print = pbasic.print;
+		var dim = pbasic.dim, dimString = pbasic.dimString;
+
+		screen.palette('spectrum');
+		screen.size('spectrum');
+		screen.border(1, 8);
+		document.getElementById('stage').appendChild(screen.canvas);
+
+		// --- numeric DIM: Sieve of Eratosthenes via DIM A(30) -----------
+		// 1 = prime, 0 = composite.
+		var SIEVE_N = 30;
+		var sieve = dim([SIEVE_N]);
+		for (var i = 1; i <= SIEVE_N; i++) { sieve.set([i], 1); }
+		sieve.set([1], 0);                       // 1 is not prime
+		for (var p = 2; p * p <= SIEVE_N; p++) {
+			if (sieve.get([p]) === 1) {
+				for (var k = p * p; k <= SIEVE_N; k += p) {
+					sieve.set([k], 0);
+				}
+			}
+		}
+
+		// --- string DIM: list of palette names, DIM PAL$(6, 14) ---------
+		var names = Object.keys(pbasic.palettes);
+		var PAL = dimString([names.length, 14]);
+		for (var n = 0; n < names.length; n++) {
+			PAL.set([n + 1], pbasic.palettes[names[n]].name);
+		}
+
+		// --- 2D numeric DIM: a tiny grid 3x6 ----------------------------
+		var grid = dim([3, 6]);
+		for (var r = 1; r <= 3; r++) {
+			for (var c = 1; c <= 6; c++) {
+				grid.set([r, c], r * 10 + c);
+			}
+		}
+
+		// --- second DIM A$(10) used by the interactive panel -----------
+		var poke = dimString([6, 10]);
+		poke.set([1], 'spectrum');
+		poke.set([2], 'BASIC');
+		poke.set([3], '1-indexed');
+
+		var numA = dim([12]);
+		numA.set([5], 42);
+
+		function paintCanvas() {
+			screen.clear();
+
+			print.color(6, 1);                       // yellow on blue
+			print.at(1, 1, 'dimArray 0.9.0');
+			print.color(5, 1);                       // cyan on blue
+			print.at(1, 2, 'BASIC-style 1-indexed arrays');
+
+			// Sieve display
+			print.color(7, 1);
+			print.at(1, 4, 'DIM SIEVE(' + SIEVE_N + ')   primes 1..' + SIEVE_N + ':');
+			var primes = '';
+			for (var i = 1; i <= SIEVE_N; i++) {
+				if (sieve.get([i]) === 1) {
+					primes += (i < 10 ? ' ' : '') + i + ' ';
+				}
+			}
+			print.color(4, 1);                       // green on blue
+			print.at(1, 5, primes);
+
+			// Palette names from string DIM
+			print.color(7, 1);
+			print.at(1, 7, 'DIM PAL$(' + names.length + ',14)');
+			for (var n = 0; n < names.length; n++) {
+				print.color(6, 1);
+				print.at(1,  8 + n, names[n] + ':');
+				print.color(2, 1);                   // red on blue
+				print.at(11, 8 + n, '"' + PAL.get([n + 1]) + '"');
+			}
+
+			// 2D grid
+			print.color(7, 1);
+			print.at(1, 16, 'DIM G(3,6)   row x col products:');
+			for (var rr = 1; rr <= 3; rr++) {
+				var rowStr = '';
+				for (var cc = 1; cc <= 6; cc++) {
+					var v = grid.get([rr, cc]);
+					rowStr += (v < 10 ? ' ' : '') + v + ' ';
+				}
+				print.color(3, 1);                   // magenta on blue
+				print.at(1, 16 + rr, rowStr);
+			}
+
+			// Live mirror of the interactive numeric DIM
+			print.color(7, 1);
+			print.at(1, 21, 'DIM A(12)  current contents:');
+			var aLine = '';
+			for (var x = 1; x <= 12; x++) {
+				var v2 = numA.get([x]);
+				aLine += (v2 < 10 && v2 >= 0 ? ' ' : '') + v2 + ' ';
+			}
+			print.color(6, 1);
+			print.at(1, 22, aLine);
+		}
+		paintCanvas();
+
+		// --- HTML side panels -------------------------------------------
+		function refreshNumState() {
+			var line = '';
+			for (var i = 1; i <= 12; i++) {
+				line += 'A(' + i + ')=' + numA.get([i]) + (i % 6 === 0 ? '\n' : '  ');
+			}
+			document.getElementById('numState').textContent = line;
+		}
+		function refreshStrState() {
+			var lines = [];
+			for (var i = 1; i <= 6; i++) {
+				lines.push('A$(' + i + ')="' + poke.get([i]) + '"');
+			}
+			document.getElementById('strState').textContent = lines.join('\n');
+		}
+		refreshNumState();
+		refreshStrState();
+
+		function showErr(msg) {
+			document.getElementById('errState').textContent = msg;
+		}
+
+		document.getElementById('numSet').onclick = function () {
+			var idx = parseInt(document.getElementById('numIdx').value, 10);
+			var val = parseInt(document.getElementById('numVal').value, 10);
+			try {
+				numA.set([idx], val);
+				refreshNumState();
+				paintCanvas();
+				showErr('(none)');
+			} catch (e) { showErr(e.message); }
+		};
+		document.getElementById('strSet').onclick = function () {
+			var idx = parseInt(document.getElementById('strIdx').value, 10);
+			var val = document.getElementById('strVal').value;
+			try {
+				poke.set([idx], val);
+				refreshStrState();
+				showErr('(none)');
+			} catch (e) { showErr(e.message); }
+		};
+	</script>
+</body>
+</html>

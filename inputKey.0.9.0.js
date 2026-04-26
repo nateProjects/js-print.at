@@ -156,6 +156,22 @@
 		return result;
 	};
 
+	// PAUSE n analogue. Returns a Promise that resolves after `ms`
+	// milliseconds. Designed for use with `await` inside async game loops:
+	//     await input.pause(80);
+	// Replaces the BASIC busy-wait FOR i = 1 TO n : NEXT i and the
+	// `BEEP 0.005, 0` short-pause idiom.
+	input.pause = function (ms) {
+		if (typeof Promise === 'undefined') {
+			_warn('pbasic: input.pause needs a Promise environment');
+			return;
+		}
+		ms = (typeof ms === 'number' && ms > 0) ? ms : 0;
+		return new Promise(function (resolve) {
+			setTimeout(resolve, ms);
+		});
+	};
+
 	// Clear all held state (useful for tests or after modal dialogs).
 	input.reset = function () {
 		_held     = {};
