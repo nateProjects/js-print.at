@@ -191,17 +191,34 @@ Keyboard input to sit alongside print output. Drop it in next to `printAt` — i
     // PAUSE n analogue - returns a Promise that resolves after `ms` ms.
     // Designed for use with await inside async game loops:
     await input.pause(80);
+
+    // Single-key boolean shortcut (1.0).
+    if (input.held('Space')) { /* ... */ }
+
+    // INPUT a$ / INPUT a analogue (1.0). Renders prompt + field via printAt,
+    // resolves on Enter. Supports backspace, length cap, numeric mode.
+    var name  = await input.line('Name? ');
+    var score = await input.line({prompt: 'Score? ', numeric: true, length: 6});
+
+    // Edge-trigger keydown handler (1.0). Returns an unsubscribe function.
+    var off = input.onkey(K.SPACE, function (k) { fire(); });
+    var off = input.onkey(function (k) { ... }, {repeat: true});  // include OS auto-repeat
+    off();                                                         // stop listening
+
+    // Scope listeners to a specific element instead of window (1.0).
+    input.attach(document.getElementById('screenCanvas'));
 </script>
 ```
 
 **Design notes**
 
 * `inkey` reports `event.key` (character-like, e.g. `"a"`, `"ArrowUp"`) to stay faithful to BASIC's `INKEY$`.
-* `getkey` and `multikeys` report `event.code` (physical-key, layout-independent, e.g. `"KeyA"`, `"Space"`). Good for games where the positions matter more than the label.
-* Listeners attach lazily on the first `input.*` call, scoped to `window`. Focus the page (click anywhere) before expecting keys. A `blur` handler clears held state so keys don't "stick" when the tab loses focus.
-* Starts at 0.9.0 — earns a 1.0 after testing. 1.0 targets: key-repeat handling, an `onkey` edge-trigger helper, optional scoping to a specific element instead of `window`.
+* `getkey`, `onkey` and `multikeys` report `event.code` (physical-key, layout-independent, e.g. `"KeyA"`, `"Space"`). Good for games where the positions matter more than the label. `onkey` also accepts an `event.key` value (e.g. `'a'`, `'Enter'`) as the filter.
+* Listeners attach lazily on the first `input.*` call, scoped to `window`. Use `input.attach(element)` to scope them to a specific DOM node instead — a `tabindex` is added automatically if the element doesn't already have one. Focus the page (click anywhere) before expecting keys. A `blur` handler clears held state so keys don't "stick" when the tab loses focus.
+* `onkey` is **edge-only by default** — OS auto-repeat does not fire it. Pass `{repeat: true}` to opt in (e.g. for typing-style input). `event.repeat` is exposed on the handler payload.
+* `input.line` is modal — only one may be active at a time, and while one is in flight all other key handling is suppressed. It depends on `printAt` being loaded for rendering.
 
-[inputKey 0.9.0 demo](https://raw.githack.com/nate2squared/print.At/master/inputKey.0.9.0.min.example.html)
+[inputKey 1.0.0 source](https://raw.githack.com/nate2squared/print.At/master/inputKey.1.0.0.js)
 
 [1.0.0 interactive demo](https://raw.githack.com/nate2squared/print.At/master/printAt.1.0.0.min.example.html)
 
@@ -212,16 +229,16 @@ Keyboard input to sit alongside print output. Drop it in next to `printAt` — i
 ZX Spectrum-style `DIM` arrays for JavaScript: 1-indexed numeric arrays and fixed-length string arrays, with the Spectrum's Procrustean string semantics. Independent of `printAt` and `inputKey`, just attaches to the same `pbasic` namespace.
 
 ```html
-<script src="dimArray.0.9.0.min.js"></script>
+<script src="dimArray.1.0.0.min.js"></script>
 <script>
     var dim = pbasic.dim, dimString = pbasic.dimString;
 
     // Numeric: DIM A(12)
     var A = dim([12]);
     A.set([5], 42);                  // LET A(5) = 42  (array form)
-    A.set(5, 42);                    // LET A(5) = 42  (varargs form, 1.1)
+    A.set(5, 42);                    // LET A(5) = 42  (varargs form)
     A.get([5]);                      // 42             (array form)
-    A.get(5);                        // 42             (varargs form, 1.1)
+    A.get(5);                        // 42             (varargs form)
     A.get([1]);                      // 0   (default)
     A.get([0]);                      // throws - 1-indexed
     A.get([13]);                     // throws
@@ -229,22 +246,46 @@ ZX Spectrum-style `DIM` arrays for JavaScript: 1-indexed numeric arrays and fixe
     // 2D numeric: DIM B(3,6)
     var B = dim([3, 6]);
     B.set([2, 4], 99);               // array form
-    B.set(2, 4, 99);                 // varargs form (1.1) - reads like LET B(2,4) = 99
+    B.set(2, 4, 99);                 // varargs form - reads like LET B(2,4) = 99
+
+    // Whole-array operations (1.0):
+    A.fill(0);                       // set every cell to 0
+    A.forEach(function (v, subs) {   // iterate in subscript order
+        console.log(subs, '=', v);   // subs is e.g. [5] or [2, 4]
+    });
+    var Ac = A.copy();               // deep clone, same dims & type
+
+    // Typed declaration (1.0): faithful "AS UBYTE" - overflows throw
+    var P = dim([23, 34], { type: 'UBYTE', fill: 4 });
+    P.set(1, 1, 255);                // ok
+    P.set(1, 1, 256);                // throws - out of range for UBYTE
+    // Available types: UBYTE, BYTE, UINT, INT, ULONG, LONG, FLOAT (default = unbounded)
 
     // Single fixed string: DIM S$(10)
     var S = dimString([10]);
     S.set([], 'hello');              // LET S$ = "hello"      -> "hello     "
+    S.set('hello');                  //                       (varargs form, 1.0)
     S.get([]);                       // "hello     "  (Procrustean pad)
+    S.get();                         //               (varargs form, 1.0)
     S.get([3]);                      // "l"           (S$(3),     1-indexed char)
+    S.get(3);                        //               (varargs form, 1.0)
     S.get([[3, 5]]);                 // "llo"         (S$(3 TO 5), inclusive slice)
 
     // String array: DIM A$(5,10)  (5 strings, each 10 chars)
     var AS = dimString([5, 10]);
-    AS.set([2], '1234567890');       // LET A$(2) = "1234567890"
+    AS.set([2], '1234567890');       // LET A$(2) = "1234567890"      (array form)
+    AS.set(2, '1234567890');         //                                (varargs, 1.0)
     AS.get([2, 7]);                  // "7"           (A$(2,7), single char)
+    AS.get(2, 7);                    //                                (varargs, 1.0)
     AS.get([2, [4, 8]]);             // "45678"       (A$(2)(4 TO 8), slice)
+    AS.get(2, [4, 8]);               //                                (varargs, 1.0)
     AS.set([2, [3, 5]], 'XYZ');      // partial replace, A$(2)(3 TO 5) = "XYZ"
-    AS.set([2, 4], 'Q');             // single char, A$(2,4) = "Q"
+    AS.set(2, [3, 5], 'XYZ');        //                                (varargs, 1.0)
+    AS.set(2, 4, 'Q');               // single char, A$(2,4) = "Q"    (varargs, 1.0)
+
+    AS.fill('---');                  // 1.0: pad-fit and copy into every slot
+    AS.forEach(function (s, subs) { /* ... */ });
+    var ASc = AS.copy();
 
     AS.dims;                         // [5, 10]
     AS.length;                       // 10  (declared char length)
@@ -257,18 +298,39 @@ ZX Spectrum-style `DIM` arrays for JavaScript: 1-indexed numeric arrays and fixe
 * Strings are *Procrustean*: assigning a value shorter than the declared length pads with spaces, longer truncates. This matches Spectrum BASIC's behaviour for fixed-length strings.
 * Slice subscripts use `[from, to]` (inclusive, 1-indexed) to mirror BASIC's `A$(from TO to)`.
 * For string arrays the **last** entry of `dims` is always the per-string char length - same convention as `DIM A$(5,10)` in BASIC.
-* `dim` exposes `.raw` (the underlying nested array; index 0 unused) for places where you want to iterate without the get/set overhead. Mutating it bypasses bounds checking, so prefer `set` / `get` outside hot loops.
+* `dim` exposes `.raw` (the underlying nested array; index 0 unused) for places where you want to iterate without the get/set overhead. Mutating it bypasses bounds checking *and* the type clamp, so prefer `set` / `get` / `fill` / `forEach` outside hot loops.
+* For numeric `dim`, `type` enforces a BASIC-flavoured value range — out-of-range writes throw, integer types reject non-integers. This is the faithful translation of `AS UBYTE` and friends; without `type`, values are unbounded as in plain JS.
+* `dimString` varargs note: a slice on a single string `S$(3 TO 5)` still requires the explicit array form `S.get([[3, 5]])` — the bare `S.get([3, 5])` is interpreted as the array form (which then errors as "too many subscripts"). For array-string slices `AS.get(2, [4, 8])` works in either form.
 
-[dimArray 0.9.0 demo](https://raw.githack.com/nate2squared/print.At/master/dimArray.0.9.0.min.example.html)
+[dimArray 1.0.0 source](https://raw.githack.com/nate2squared/print.At/master/dimArray.1.0.0.js)
 
 
-**What's new in 1.1.0**
+**What's new in inputKey 1.0.0**
+
+* Added `input.line([prompt], [opts])` — the missing `INPUT a$` / `INPUT a` statement; renders prompt + field via printAt, supports backspace, length cap and numeric mode, resolves on Enter
+* Added `input.onkey([target], handler, [opts])` — edge-trigger keydown handler returning an unsubscribe function; opt-in to OS auto-repeat via `{repeat: true}`
+* Added `input.held(code)` — single-key boolean shortcut (`input.held('Space')`)
+* Added `input.attach(element)` — scope listeners to a specific DOM element instead of `window`; auto-adds `tabindex` if missing
+* Key-repeat handling: `event.repeat` is exposed on every onkey payload; edge-only by default
+* Wider test pass — 13 behaviours covered headlessly
+
+**What's new in dimArray 1.0.0**
+
+* Added `.fill(value)` — set every cell / string slot in one call (collapses init loops)
+* Added `.forEach(fn)` — iterate every cell in subscript order, callback receives `(value, subs)`
+* Added `.copy()` — deep clone with same dimensions, type and values
+* Added typed numeric dims via `dim(dims, {type: 'UBYTE'})` — out-of-range writes throw; faithful to BASIC's `AS UBYTE / BYTE / UINT / INT / ULONG / LONG`. `FLOAT` / no-type = unbounded as before
+* Added constructor `{fill}` option for both `dim` and `dimString` — initial value at construction
+* Added varargs form on `dimString.set` / `dimString.get` — `AS.set(2, 4, 'Q')`, `AS.get(2, [4, 8])` now match the numeric-dim varargs ergonomics
+* Wider test pass — 14 behaviours covered
+
+**What was new in printAt 1.1.0**
 
 * Added `print.at(x, y, text, ink, paper)` and `print.line(text, ink, paper)` overloads — one-shot ink/paper that doesn't disturb the persistent `print.color` defaults; collapses every `print.color(...)` + `print.at(...)` pair into a single statement
 * Added `print.basicAt(y, x, text, [ink], [paper])` — Spectrum-style alias (y first, 0-indexed) for line-by-line BASIC ports
 * Added `screen.glyph(code, bytes)` — register N x 8 bitmap characters in Spectrum UDG byte format; closes the gap that previously had no workaround
 * `inputKey` 0.9.x — added `input.pause(ms)`, a promise-returning `PAUSE n` analogue for use with `await` inside async game loops
-* `dimArray` 0.9.x — added varargs form on `set` / `get`: `A.set(5, 42)` / `B.set(2, 4, 99)` alongside the array form, mirroring BASIC's `LET A(5) = 42` / `LET B(2,4) = 99`
+* `dimArray` 0.9.x — added varargs form on numeric `set` / `get`: `A.set(5, 42)` / `B.set(2, 4, 99)` alongside the array form, mirroring BASIC's `LET A(5) = 42` / `LET B(2,4) = 99`
 
 **What was new in 1.0.0**
 
@@ -306,10 +368,14 @@ ZX Spectrum-style `DIM` arrays for JavaScript: 1-indexed numeric arrays and fixe
 
 **Plans**
 
-* 1.0 - DONE: `screen.cls` (ink/paper args), `screen.grid` (cell overlay), `screen.border` (configurable surround)
-* 1.1 - DONE: inline ink/paper on `print.at` / `print.line`, `print.basicAt` Spectrum-coord alias, `screen.glyph` bitmap UDGs, `input.pause`, `dim.set` / `dim.get` varargs
-* 1.2+ - Bitmap fonts (Spectrum ROM 8x8 etc.) bundled out of the box for true-pixel `screen.scale(1)` rendering, multi-mode resolutions per machine, JSLint pass
-* `dimArray` 0.9.x - 1-indexed `DIM` arrays (numeric + Procrustean fixed-length strings) shipped as a separate companion file; earns 1.0 after a wider testing pass
+* printAt 1.0 - DONE: `screen.cls` (ink/paper args), `screen.grid` (cell overlay), `screen.border` (configurable surround)
+* printAt 1.1 - DONE: inline ink/paper on `print.at` / `print.line`, `print.basicAt` Spectrum-coord alias, `screen.glyph` bitmap UDGs, `input.pause`, numeric `dim.set` / `dim.get` varargs
+* inputKey 1.0 - DONE: `input.line` (INPUT analogue), `input.onkey` (edge-trigger), `input.held`, `input.attach` (element scoping), key-repeat opt-in, test pass
+* dimArray 1.0 - DONE: `.fill` / `.forEach` / `.copy`, typed numeric dims (`AS UBYTE` faithful), constructor `{fill}`, dimString varargs, test pass
+* printAt 1.2 - "BASIC verbs that are still missing": `print.tab`, `print.cr`, `print.cursor`, `print.repeat`, `print.fill`, `print.clearLine`, `print.padRight` / `padLeft`, `print.style({...}, fn)` scoped block, `print.color()` getter; small `pbasic.sound` (BEEP) module
+* printAt 1.3 - "Stateful screen": `screen.charAt` / `screen.attrAt` (read back), `screen.attr` (color-only), `screen.snapshot` / `screen.restore`
+* printAt 1.4 - Bundled bitmap fonts (Spectrum / C64 / CGA ROM) for true-pixel `screen.scale(1)` rendering; Spectrum text attributes (`print.invert` / `flash` / `bright` / `over`); multi-mode resolutions per palette
+* Future modules - `pbasic.data` (READ/DATA/RESTORE), `pbasic.format` (rnd/int/str$ helpers), `pbasic.store` (SAVE/LOAD via localStorage), `pbasic.loop` (game-loop helper); `pbasic.gfx` (PLOT/DRAW/CIRCLE pixel primitives) as a separate module when a port asks for it
 
 **Acknowledgements**
 

@@ -4,8 +4,8 @@
     <meta charset="utf-8">
     <title>ZXSnake - pbasic port</title>
     <script src="printAt.1.0.0.js"></script>
-    <script src="inputKey.0.9.0.js"></script>
-    <script src="dimArray.0.9.0.js"></script>
+    <script src="inputKey.1.0.0.js"></script>
+    <script src="dimArray.1.0.0.js"></script>
     <style>
         body { font-family: sans-serif; margin: 16px; background: #f4f4f4; color: #222; }
         h1   { margin: 0 0 4px 0; font-size: 18px; }
@@ -15,6 +15,7 @@
 <body>
     <h1>ZXSnake</h1>
     <p>Click the canvas (to give it focus), then press any key to start. Q / A / O / P to steer.</p>
+    <p>Taken from - <a href="https://zxbasic.readthedocs.io/en/docs/examples/snake.bas/">Boriel Basic Snake.bas</a></p>
     <div id="stage"></div>
 
     <script>
@@ -48,10 +49,17 @@
 
     // -----------------------------------------------------------------
     // 75-95   Variable / array declaration
+    // dimArray 1.0: type clamping makes typed declarations faithful -
+    // overflows throw rather than silently wrapping. Note that the
+    // original BASIC declared x(,) / y(,) AS UBYTE but actually stores
+    // signed direction components (-1, 0, 1) in them; on a real Spectrum
+    // that wraps to 255 and happens to round-trip via modular arithmetic,
+    // but a strict JS port has to declare them signed (BYTE) to avoid
+    // the orientation-store throwing on Up/Left moves.
     // -----------------------------------------------------------------
-    var p = dim([23, 34]);           // DIM p(23,34) AS UBYTE  - screen
-    var x = dim([23, 34]);           // DIM x(23,34) AS UBYTE  - x-orient
-    var y = dim([23, 34]);           // DIM y(23,34) AS UBYTE  - y-orient
+    var p = dim([23, 34], { type: 'UBYTE' });   // DIM p(23,34) - screen cell codes 0..4
+    var x = dim([23, 34], { type: 'BYTE'  });   // DIM x(23,34) - x-orient (-1, 0, 1)
+    var y = dim([23, 34], { type: 'BYTE'  });   // DIM y(23,34) - y-orient (-1, 0, 1)
 
     var headx, heady, tailx, taily;
     var orientationx, orientationy;
@@ -83,19 +91,17 @@
 
     // -----------------------------------------------------------------
     // 100 - 250  Variable definition + array clear
+    // dimArray 1.0: .fill() collapses the FOR/NEXT init loops.
     // -----------------------------------------------------------------
     function initState () {
         headx = 11; heady = 5;
         tailx =  5; taily = 5;
         orientationx = 1; orientationy = 0;
 
-        for (var c = 1; c <= 23; c++) {
-            for (var f = 1; f <= 34; f++) {
-                p.set(c, f, 0);
-                x.set(c, f, 0);
-                y.set(c, f, 0);
-            }
-        }
+        p.fill(0);
+        x.fill(0);
+        y.fill(0);
+
         score = 0;
         eaten = 0;
     }
