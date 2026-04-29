@@ -1,0 +1,407 @@
+<!doctype html>
+<html>
+<head>
+	<meta charset="utf-8">
+	<title>Four In A Row - print.At port</title>
+	<!-- The .min builds in this repo lag the sources (no print.basicAt,
+	     no per-call ink/paper). Use the un-minified files. -->
+	<script src="printAt.1.0.0.js"></script>
+	<script src="inputKey.0.9.0.js"></script>
+	<script src="dimArray.0.9.0.js"></script>
+	<style>
+		body { font-family: sans-serif; margin: 16px; background: #f4f4f4; color: #222; }
+		h1 { margin: 0 0 4px 0; font-size: 18px; }
+		p.lead { margin: 0 0 12px 0; color: #555; font-size: 13px; }
+		#stage { position: relative; min-height: 480px; }
+		#screenCanvas { position: static !important; display: block; margin: 0 0 16px 0; box-shadow: 0 2px 6px rgba(0,0,0,0.2); }
+		code { font-family: Menlo, Consolas, monospace; background: #eee; padding: 1px 4px; border-radius: 3px; }
+	</style>
+</head>
+<body>
+	<h1>Four In A Row</h1>
+	<p class="lead">
+		Port of an 8x6 Connect Four written by R.Bernat for MicroHOBBY #18 (1985), translated
+		from Sinclair BASIC to <code>pbasic.print</code> + <code>pbasic.input</code> +
+		<code>pbasic.dim</code>. Click the canvas, then press <strong>y</strong> (you start) or
+		<strong>m</strong> (computer starts). On your turn, press <strong>1-8</strong> to drop a
+		disc into that column.
+	</p>
+
+	<div id="stage"></div>
+
+	<script>
+		var screen = pbasic.screen, print = pbasic.print, input = pbasic.input;
+		var dim = pbasic.dim;
+
+		// --- Spectrum-style canvas ----------------------------------------
+		screen.palette('spectrum');
+		screen.size('spectrum');
+		screen.border(1, 8);                  // BORDER 1 (blue), 8px thick
+		screen.cls(6, 1);                     // INK 6 (yellow) on PAPER 1 (blue)
+		document.getElementById('stage').appendChild(screen.canvas);
+
+		var ctx   = screen.context;
+		var PAL   = pbasic.palettes.spectrum.colors;
+		var SCALE = screen.scale();
+		var NH    = screen.nativeHeight;      // 192
+
+		// Spectrum BASIC y goes up from the bottom; canvas y goes down from
+		// the top. These wrappers do the flip + scale once so the rest of
+		// the code can stay in BASIC pixel coordinates. The +0.5*SCALE
+		// offset puts strokes on pixel centres so they stay crisp.
+		function bxC(x) { return x * SCALE + 0.5 * SCALE; }
+		function byC(y) { return (NH - y) * SCALE + 0.5 * SCALE; }
+
+		// --- Board state (DIM M(8,6)) ------------------------------------
+		var M = dim([8, 6]);
+		var j = 0;        // move count: draw at 48
+		var firstMove;    // 'y' or 'm' - who started this game
+
+		function resetBoard() {
+			for (var i = 1; i <= 8; i++) {
+				for (var m = 1; m <= 6; m++) M.set([i, m], 0);
+			}
+			j = 0;
+		}
+
+		// --- 2000: lowest empty row in column x --------------------------
+		function dropRow(x) {
+			for (var r = 1; r <= 6; r++) {
+				if (M.get([x, r]) === 0) return r;
+			}
+			return 7;            // column full
+		}
+
+		// --- 1500: count along (dx, dy) from (x, y) for `color` ----------
+		// +10 per consecutive same-color, +1 per empty after the run, stop
+		// at boundary or opposite-color.
+		function countDir(x, y, dx, dy, color) {
+			var ps = 0, b = 0;
+			var xx = x, yy = y;
+			while (true) {
+				xx += dx; yy += dy;
+				if (xx < 1 || yy < 1 || xx > 8 || yy > 6) return ps;
+				var v = M.get([xx, yy]);
+				if (v !== color && v !== 0) return ps;
+				if (v === color && b === 0) { ps += 10; continue; }
+				ps += 1; b = 1;
+			}
+		}
+
+		// --- 1030: heuristic score for placing `color` at (x, y) ---------
+		// E+W are summed; N (down toward stacked pieces) standalone;
+		// each diagonal is summed across its two halves. Best of the four
+		// "lines" wins. Asymmetric on purpose - up direction is omitted
+		// because under gravity it's always empty.
+		function evalScore(x, y, color) {
+			var psp = countDir(x, y,  1,  0, color)
+			        + countDir(x, y, -1,  0, color);                  // E + W
+
+			var s = countDir(x, y, 0, -1, color);                     // down only
+			if (s > psp) psp = s;
+
+			var np = countDir(x, y,  1, -1, color)
+			       + countDir(x, y, -1,  1, color);                   // /-diag
+			if (np > psp) psp = np;
+
+			np = countDir(x, y,  1,  1, color)
+			   + countDir(x, y, -1, -1, color);                       // \-diag
+			if (np > psp) psp = np;
+
+			return psp;
+		}
+
+		// --- 1600: "if I drop here, can opponent stack on top and win?" --
+		// Temporarily places M=1 at (x, y), evaluates color=2 at (x, y+1),
+		// then restores. Returns 0.05 sentinel if vulnerable, else the raw
+		// opponent score (which will be < 30, since 1620 caps it at 0.05).
+		function lookAhead(x, y) {
+			M.set([x, y], 1);
+			var ny = y + 1;
+			var s = 0;
+			if (ny <= 6) s = evalScore(x, ny, 2);
+			M.set([x, y], 0);
+			if (s >= 30) s = 0.05;
+			return s;
+		}
+
+		// --- Drawing ------------------------------------------------------
+		// 100-110: PLOT/DRAW the comb-shaped board frame in BASIC space.
+		// We approximate with rectangles: the playing area, the foot, and
+		// the empty hole circles for each cell.
+		function drawBoard() {
+			ctx.strokeStyle = PAL[7];   // INK 7 (white)
+			ctx.lineWidth   = SCALE;
+			ctx.lineCap     = 'square';
+
+			// Inner playing area box (x: 20..148, y: 40..132 BASIC)
+			ctx.beginPath();
+			ctx.moveTo(bxC(20),  byC(40));
+			ctx.lineTo(bxC(148), byC(40));
+			ctx.lineTo(bxC(148), byC(132));
+			ctx.lineTo(bxC(20),  byC(132));
+			ctx.closePath();
+			ctx.stroke();
+
+			// Vertical column dividers (every 16 BASIC px)
+			for (var i = 1; i < 8; i++) {
+				var xv = 20 + i * 16;
+				ctx.beginPath();
+				ctx.moveTo(bxC(xv), byC(40));
+				ctx.lineTo(bxC(xv), byC(132));
+				ctx.stroke();
+			}
+
+			// Outer shell + foot (the 12,16 / 12,-16 chamfered corners +
+			// the 25..135 base strip in the original DRAW sequence)
+			ctx.beginPath();
+			ctx.moveTo(bxC(0),   byC(16));
+			ctx.lineTo(bxC(12),  byC(32));
+			ctx.lineTo(bxC(12),  byC(132));
+			ctx.lineTo(bxC(20),  byC(132));
+			ctx.moveTo(bxC(148), byC(132));
+			ctx.lineTo(bxC(156), byC(132));
+			ctx.lineTo(bxC(156), byC(32));
+			ctx.lineTo(bxC(168), byC(16));
+			// Base strip
+			ctx.moveTo(bxC(0),   byC(16));
+			ctx.lineTo(bxC(168), byC(16));
+			ctx.moveTo(bxC(25),  byC(25));
+			ctx.lineTo(bxC(135), byC(25));
+			ctx.stroke();
+
+			// Empty hole at each cell (matches 3010-3020 disc positioning)
+			for (var col = 1; col <= 8; col++) {
+				for (var row = 1; row <= 6; row++) {
+					var hx = ((col * 2) + 1) * 8;
+					var hy = ((row * 2) + 3) * 8;
+					ctx.beginPath();
+					ctx.arc(bxC(hx), byC(hy), 7 * SCALE, 0, Math.PI * 2);
+					ctx.stroke();
+				}
+			}
+		}
+
+		// 3000-3030: draw a filled disc (CPU=ink 7 white, You=ink 2 red).
+		// Original draws 7 concentric CIRCLE outlines for fill; canvas can
+		// fill() in one call.
+		function drawPiece(xp, yp, color) {
+			ctx.fillStyle = (color === 1) ? PAL[7] : PAL[2];
+			var xx = ((xp * 2) + 1) * 8;
+			var yy = ((yp * 2) + 3) * 8;
+			ctx.beginPath();
+			ctx.arc(bxC(xx), byC(yy), 7 * SCALE, 0, Math.PI * 2);
+			ctx.fill();
+		}
+
+		// --- Sound (BEEP analogue) ---------------------------------------
+		var _audio = null;
+		function beep(durSec, semitones) {
+			try {
+				if (!_audio) _audio = new (window.AudioContext ||
+				                            window.webkitAudioContext)();
+				var t = _audio.currentTime;
+				var osc  = _audio.createOscillator();
+				var gain = _audio.createGain();
+				// Spectrum BEEP: pitch is semitones above middle C
+				osc.type = 'square';
+				osc.frequency.value = 261.63 * Math.pow(2, semitones / 12);
+				gain.gain.setValueAtTime(0.04, t);
+				gain.gain.exponentialRampToValueAtTime(0.0001, t + durSec);
+				osc.connect(gain).connect(_audio.destination);
+				osc.start(t);
+				osc.stop(t + durSec);
+			} catch (e) { /* no audio - silent fall through */ }
+		}
+
+		// 2500: chime - shortened so it doesn't dominate move pacing.
+		async function chime() {
+			for (var n = 1; n <= 6; n++) {
+				var d1 = (n * n) / 200;
+				beep(d1, n);
+				await input.pause(d1 * 1000 + 5);
+				var d2 = n / 100;
+				beep(d2, n);
+				await input.pause(d2 * 1000 + 5);
+			}
+		}
+
+		// --- Input helpers (2700, 2800) ----------------------------------
+		async function getKey() {
+			var k = await input.getkey();
+			return k.key;
+		}
+		async function waitYM() {
+			while (true) {
+				var k = await getKey();
+				if (k === 'y' || k === 'm') return k;
+			}
+		}
+
+		// Status line at BASIC AT 12,20 (-> basicAt(12, 20))
+		function status(text, ink) {
+			print.basicAt(12, 20, (text + '         ').slice(0, 12),
+			              typeof ink === 'undefined' ? 6 : ink, 1);
+		}
+
+		// --- 500-640: computer's move -----------------------------------
+		async function computerMove() {
+			status('THINKING', 4);                  // INK 4 green
+			var p = 0, bestX = 1, bestY = 1;
+
+			for (var i = 1; i <= 8; i++) {
+				var x = i;
+				var y = dropRow(x);
+				if (y > 6) continue;                 // 540: column full
+
+				// 550: own-move score
+				var psp = evalScore(x, y, 1);
+				print.basicAt(5, 20 + i, String(i), 4, 1);
+
+				// 560: lookahead only when this beats current best & isn't
+				// already a winning move. Modifies psp (sets to 0.05 if
+				// dropping here lets opponent win on top).
+				if (psp > p && psp < 30) psp = lookAhead(x, y);
+
+				// 570: tentatively update best
+				if (psp > p) { p = psp; bestX = x; bestY = y; }
+
+				// 575: bail on this column if it leaves us vulnerable
+				if (psp === 0.05) continue;
+
+				// 580: blocking-score (what opponent would get here)
+				var psp2 = evalScore(x, y, 2);
+				if (psp2 >= 30) {
+					psp2 = 29.9;                     // forced block
+				} else {
+					// 585: original BASIC's lookahead for the blocking
+					// branch is effectively a no-op (1620 caps at 0.05,
+					// then 585's IF psp>=30 can never trigger and psp is
+					// restored from pp). We preserve that behaviour.
+					var ppSave = psp2;
+					lookAhead(x, y);                 // side-effect-free here
+					psp2 = ppSave;
+				}
+
+				// 590: update best with blocking score if better
+				if (psp2 > p) { p = psp2; bestX = x; bestY = y; }
+			}
+
+			// 600: clear the per-column "thinking" digit row
+			print.basicAt(5, 20, '            ', 1, 1);
+
+			// 610-620: place + chime + redraw
+			M.set([bestX, bestY], 1);
+			drawPiece(bestX, bestY, 1);
+			j += 1;
+			chime();                                 // fire-and-forget
+
+			if (p >= 30) return 'cpu';
+			if (j === 48) return 'draw';
+			return null;
+		}
+
+		// --- 700-790: player's move --------------------------------------
+		async function playerMove() {
+			status('YOUR MOVE', 4);
+			while (true) {
+				var k = await getKey();
+				var x = parseInt(k, 10);
+				if (isNaN(x) || x < 1 || x > 8) continue;     // 720
+				var y = dropRow(x);
+				if (y > 6) { status('Not valid', 2); continue; }  // 725
+
+				// 730-740: place + draw
+				drawPiece(x, y, 2);
+				M.set([x, y], 2);
+				j += 1;
+				chime();
+
+				// 760-770: did that move win?
+				var score = evalScore(x, y, 2);
+				if (score >= 30) return 'you';
+				if (j === 48) return 'draw';                      // 780
+				status('', 6);
+				return null;                                      // 790 -> CPU
+			}
+		}
+
+		// --- 3500/3550 win banners + 3600 play-again ---------------------
+		function banner(text) {
+			print.basicAt(11, 1, '                              ', 7, 1);
+			print.basicAt(11, 4, '   ' + text + '   ', 7, 2);  // ink 7 on red
+		}
+
+		async function playAgain() {
+			print.basicAt(22, 6, 'Play Again? (y/n)', 6, 1);
+			while (true) {
+				var k = await getKey();
+				if (k === 'y') return true;
+				if (k === 'n') return false;
+			}
+		}
+
+		// --- 1: title screen --------------------------------------------
+		async function title() {
+			screen.cls(7, 1);                              // INK 7 PAPER 1
+			print.basicAt(10, 10, 'STOP THE TAPE', 7, 1);  // FLASH 1 (static)
+			await input.pause(1500);
+		}
+
+		// --- 6-25: opening prompt ---------------------------------------
+		async function intro() {
+			screen.cls(6, 1);
+			// Stand-in for line 20's UDG title art
+			print.basicAt(2, 4, '* * *  FOUR  IN  A  ROW  * * *', 4, 1);
+			print.basicAt(21, 5, '*  by  R.Bernat  *', 6, 1);
+			print.basicAt(15, 3, 'Who starts, You or Me? (y/m).', 7, 1);
+			var who = await waitYM();
+			print.basicAt(15, 3, '                              ', 6, 1);
+			await chime();
+			return who;
+		}
+
+		// --- main game loop ---------------------------------------------
+		async function game() {
+			firstMove = await intro();
+
+			resetBoard();
+			screen.cls(6, 1);
+			drawBoard();
+			print.basicAt(5, 1, ' 1 2 3 4 5 6 7 8 ', 0, 6);  // INVERSE: ink 0/paper 6
+
+			// 450/480/490: in the prompt "Who starts, You or Me?" the labels
+			// address the CPU - 'y' means "You (computer) start", 'm' means
+			// "Me (player) start". So when firstMove === 'y' the CPU opens
+			// at column 5 (centre on this 8-wide board); when 'm' the
+			// player plays the very first move with no opener.
+			if (firstMove === 'y') {
+				M.set([5, 1], 1);
+				drawPiece(5, 1, 1);
+			}
+
+			// Alternating turns. Player always plays first inside this
+			// loop - matches the BASIC flow where 480 opens for the CPU
+			// and falls through to 700 (player's move).
+			while (true) {
+				var r = await playerMove();
+				if (r === 'you')  { banner('YOU WIN'); break; }
+				if (r === 'draw') { status('-Draw-'); break; }
+
+				r = await computerMove();
+				if (r === 'cpu')  { banner('I WIN');   break; }
+				if (r === 'draw') { status('-Draw-'); break; }
+			}
+
+			if (await playAgain()) return game();
+			status('Bye!');
+		}
+
+		// --- boot --------------------------------------------------------
+		(async function () {
+			await title();
+			await game();
+		})();
+	</script>
+</body>
+</html>
