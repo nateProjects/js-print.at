@@ -152,6 +152,137 @@ screen.glyph (144, null);                  // remove a registration
 
 The bitmap is N rows by 8 columns — typically 8x8, but other row counts work (e.g. 16-row tall sprites if your cell height accommodates them).
 
+**`print.tab` / `print.fill` / `print.repeat` (1.2.0)**
+
+Genuine cross-dialect ports rather than invented verbs. Sinclair BASIC's `TAB` is column-only — the Spectrum has no `SPC` or `STRING$` — so the relative-space and repeat-string verbs are borrowed from the BBC / Amstrad CPC side of the bundled palettes.
+
+```js
+print.at  (1, 1, "Score");
+print.tab (11);                    // PRINT TAB n (Sinclair) - pad to an absolute column
+print.line("9001");
+
+print.at  (1, 3, "Fuel ");
+print.fill(10, "#");               // SPC(n) (BBC/CPC) - draw n cells relative to the cursor
+
+print.line(print.repeat("=", 20)); // STRING$(n, char$) (BBC/CPC) - pure string helper
+```
+
+`print.tab(n, [ink], [paper])` pads with spaces from the cursor's current column out to column `n` on the current row (1-indexed, matching `print.at`). It's a no-op if the cursor is already at or past `n`, and clamps (with a warning) if `n` is beyond `screen.cols`.
+
+`print.fill(n, [char], [ink], [paper])` draws `n` cells of `char` (default space) starting at the cursor and advances the cursor by `n`, wrapping to the next row if it runs past `screen.cols`. Unlike `tab` (an absolute column), `fill` is relative to wherever the cursor already sits — the `SPC(n)` role in BBC/CPC BASIC.
+
+`print.repeat(text, count)` is a pure string helper — like `STRING$`, it produces a string rather than drawing anything, meant to be composed with `print.at` / `print.line` / `print.fill`.
+
+**`print.cr` / `print.clearLine` / `print.padRight` / `print.padLeft` / `print.style` / `print.color()` getter (1.3.0)**
+
+JS ergonomics with no BASIC ancestor — gaps none of the bundled 8-bit dialects needed a verb for, filled with idioms native to JS (a getter, a scoped callback) rather than invented statement syntax.
+
+```js
+print.line ("row one");
+print.cr   ();                              // blank line, no drawing
+print.line ("row three");
+
+print.at   (1, 5, "Score: 9001");
+print.clearLine();                          // repaint that row, cursor back to col 1
+
+var row = print.padRight("HP", 6) + print.padRight("42", 4);
+print.line(row);                            // "HP    42  "
+
+print.style({ink: 2, paper: 0}, function () {
+    print.line("danger");                   // both lines drawn ink 2 on paper 0
+    print.line("zone");
+});                                          // persistent color restored here
+
+print.color();                              // -> { ink: 0, paper: 7 } (or whatever's current)
+```
+
+`print.cr([n])` moves the cursor to column 1, `n` rows down (default 1) — no drawing, just cursor movement, for inserting blank lines.
+
+`print.clearLine([y], [paper])` repaints row `y` (default: the cursor's row) with `paper` (default: the persistent print paper) across the full screen width, and resets the cursor to column 1 of that row.
+
+`print.padRight(text, width, [char])` / `print.padLeft(text, width, [char])` are pure string helpers — pad `text` out to `width` with `char` (default space), unchanged if already at or past `width`.
+
+`print.style({ink, paper}, fn)` runs `fn` with the persistent print colors temporarily overridden, restoring them once `fn` returns. Unlike the inline ink/paper args on `print.at` / `print.line` (which apply to a single draw), this scopes every `print.*` call inside `fn`.
+
+`print.color()` with no arguments now returns the current `{ink, paper}`; calling it with arguments still sets them as before.
+
+**`print.cursor` / `pbasic.sound` (1.4.0)**
+
+Both have real ancestors — BBC BASIC's `POS`/`VPOS` and Sinclair BASIC's `BEEP` — but were split out of 1.3 into their own stage rather than lumped in with the JS-only ergonomics.
+
+```js
+print.at(5, 3, "x");
+print.cursor();              // -> { x: 6, y: 3 } (read, like POS/VPOS)
+print.cursor(1, 1);          // move without drawing (POS/VPOS are read-only on the BBC; this adds a setter)
+
+await pbasic.sound(0.5, 0);  // BEEP 0.5, 0 - half a second at middle C
+await pbasic.sound(0.15, 12); // BEEP 0.15, 12 - a short beep an octave up
+```
+
+`print.cursor([x], [y])` merges BBC's two separate read-only functions into one getter/setter, following the same call-with-no-args-to-read pattern as `print.color` / `screen.palette`.
+
+`pbasic.sound(duration, pitch)` plays a square-wave tone through the Web Audio API — `duration` in seconds, `pitch` in semitones relative to middle C (0 = C4), matching the Spectrum ROM's own convention. No envelope shaping; the real one-bit beeper clicked hard on and off too. Returns a promise that resolves once `duration` has elapsed, so it composes with `await` inside an async game loop the same way `input.pause` does — without actually blocking the JS thread the way real `BEEP` blocks BASIC.
+
+**Stateful screen: `charAt` / `attrAt` / `attr` / `snapshot` / `restore` (1.5.0)**
+
+No bundled BASIC dialect has these as statements — Spectrum BASIC's nearest equivalent is PEEKing screen and attribute memory directly. Backing them is a parallel char/attr buffer that `print.at` / `print.line` / `print.tab` / `print.fill` / `print.repeat` all write through to as they draw.
+
+```js
+print.at(5, 3, "X", 2, 0);
+screen.charAt(5, 3);              // -> "X"
+screen.attrAt(5, 3);              // -> { ink: 2, paper: 0 }
+screen.attr(5, 3, 6, 1);          // recolor that cell -- still "X", now ink 6 on paper 1
+
+var saved = screen.snapshot();    // pixels + char/attr buffer + cursor + print color
+print.style({ink: 7, paper: 0}, function () {
+    screen.clear();
+    print.at(1, 1, "PAUSED");     // draw a menu over the game screen
+});
+screen.restore(saved);            // back to exactly how it was
+```
+
+`screen.charAt(x, y)` / `screen.attrAt(x, y)` read back whatever the last `print.*` call left at a cell (1-indexed, matching `print.at`), or `undefined` out of bounds.
+
+`screen.attr(x, y, ink, paper)` recolors a single cell in place without touching its character — the color-only counterpart to `print.at`'s inline ink/paper args.
+
+`screen.snapshot()` / `screen.restore(snapshot)` capture and restore the full visible screen — pixels, the char/attr buffer, cursor position, and the persistent print colors. `restore` skips (with a warning) if the canvas has been resized since the snapshot was taken, since the pixel buffer wouldn't line up.
+
+**Bitmap fonts, Spectrum text attributes, multi-mode resolutions (1.6.0 - 1.7.0)**
+
+```js
+screen.palette('spectrum');       // auto-selects the spectrum bitmap font
+screen.scale(1);                  // one source pixel per device pixel -- crispest here
+screen.size('spectrum');
+print.at(1, 1, "TRUE PIXEL TEXT");
+
+screen.palette('c64');            // auto-selects the c64 font instead
+screen.palette('cga');            // auto-selects the cga font instead
+screen.bitmapFont(null);          // override: back to the canvas font
+
+print.invert(true);               // INVERSE: swap ink/paper for the draw
+print.bright(false);              // BRIGHT off: dims ink/paper (0xCD / 0xFF ratio)
+print.over(true);                 // OVER: draw onto the existing background, no paper fill
+print.flash(true);                // FLASH: periodic ink/paper swap (~320ms) until redrawn
+
+screen.size('bbc', 'mode1');      // multi-mode resolutions: named mode per palette
+screen.size('cga', 'lores');
+```
+
+`screen.bitmapFont(name)` activates a bundled 8x8 bitmap ROM font — registered characters render as true pixel bitmaps instead of the canvas's own font, especially crisp at `screen.scale(1)` where it works out to one source pixel per device pixel. Individual `screen.glyph()` registrations still take priority, so custom UDGs override specific characters even with a bitmap font active. `screen.bitmapFont(null)` turns it off; `screen.bitmapFont()` with no args returns the active font name.
+
+`screen.palette(name)` auto-selects that machine's own bitmap font via the palette's `font` field, the same way it already selects the default ink/paper — no separate `screen.bitmapFont()` call needed. `spectrum`, `c64`, and `cga` each have one; `bbc`/`msx`/`cpc` don't yet, so selecting them turns the bitmap font off. An explicit `screen.bitmapFont()` call overrides the palette's choice, and re-selecting a palette re-applies its own font even over that override.
+
+Bundled fonts:
+- **`'spectrum'`** — the full ZX Spectrum ROM character set (96 chars, codes 0x20-0x7F), extracted from the ROM's character table and verified against the font's well-known "slashed zero."
+- **`'c64'`** — the Commodore 64 character ROM, the mixed-case charset (uppercase A-Z, lowercase a-z, digits, standard punctuation). PETSCII has no equivalent for `` [ \ ] ^ _ ` `` — those fall back to the canvas font rather than showing the wrong glyph.
+- **`'cga'`** — the IBM PC/CGA 8x8 BIOS font (CP437), the full ASCII printable range with no gaps.
+
+All three were verified the same way: render every glyph as ASCII art and read the pixel shapes back before trusting them — which caught a real bug in the C64 data (`@` sits at screen code 0, not 64) before it shipped.
+
+`print.invert` / `print.bright` / `print.over` / `print.flash` are persistent getter/setters, call-with-no-args-to-read like `print.color`, and all four compose with `print.style({...}, fn)` for a scoped one-off. Real Sinclair BASIC only offers `INVERSE` and `OVER` as per-statement PRINT items — never a persistent default — so making them persistent here is a deliberate convenience, consistent with how this library already treats ink/paper. `bright` defaults to `true` so existing `print.At` content keeps its pre-1.6 full-intensity look; `print.bright(false)` is the opt-in dim mode. `over` is a practical approximation of real OVER's per-pixel XOR (skip the paper fill, draw ink on top) rather than true XOR compositing. `screen.attrAt` now also reports all four; `screen.snapshot`/`restore` now carry them too.
+
+Palettes can now declare a `resolutions` map of named video modes alongside the single default `resolution` — for the machines that actually had more than one (BBC MODE 0/1/2/7, CGA's 40/80-column text, CPC MODE 0/1/2). Select one with `screen.size(paletteName, modeName)`; `screen.size(paletteName)` alone still applies the default mode, unchanged from before 1.6.
+
 ---
 
 ## inputKey (companion library)
@@ -303,6 +434,74 @@ ZX Spectrum-style `DIM` arrays for JavaScript: 1-indexed numeric arrays and fixe
 * `dimString` varargs note: a slice on a single string `S$(3 TO 5)` still requires the explicit array form `S.get([[3, 5]])` — the bare `S.get([3, 5])` is interpreted as the array form (which then errors as "too many subscripts"). For array-string slices `AS.get(2, [4, 8])` works in either form.
 
 [dimArray source](https://raw.githack.com/nate2squared/print.At/master/dimArray.js)
+
+---
+
+## data (companion module)
+
+`DATA` / `READ` / `RESTORE` for JavaScript. Extends the same `pbasic` namespace with a `pbasic.data` function (itself the `DATA` analogue, carrying `.read` / `.restore` / `.remaining` as methods). No dependency on `printAt` or any other module.
+
+```html
+<script src="data.js"></script>
+<script>
+    var data = pbasic.data;
+
+    // DATA 1, 2, 3, "hello"
+    data(1, 2, 3, "hello");
+    data(4, 5, 6);
+
+    // READ a
+    var a = data.read();             // 1
+
+    // READ a, b, c  -- JS has no multi-variable assignment, so a count
+    // reads that many values back as an array instead
+    var abc = data.read(3);          // [2, 3, "hello"]
+
+    data.remaining();                // 2  (not from BASIC -- a JS convenience)
+
+    // RESTORE
+    data.restore();
+    data.read();                     // 1 again
+
+    // RESTORE to a specific position (the nearest analogue to `RESTORE line`,
+    // which real line numbers made possible and this doesn't have)
+    data.restore(3);
+    data.read();                     // "hello"
+</script>
+```
+
+Reading past the end of the pool warns and returns `undefined` (or fewer values than asked for, from `read(n)`) rather than raising the runtime error real BASIC's "Out of DATA" does — consistent with how the rest of this library degrades rather than throws.
+
+[data source](https://raw.githack.com/nate2squared/print.At/master/data.js)
+
+---
+
+## format (companion module)
+
+`RND` / `INT` / `STR$` for JavaScript. Extends the same `pbasic` namespace with a `pbasic.format` object. No dependency on `printAt` or any other module.
+
+```html
+<script src="format.js"></script>
+<script>
+    var format = pbasic.format;
+
+    format.rnd();                    // RND (Sinclair/CPC)  -- float in [0, 1)
+    format.rnd(6);                   // RND(6) (BBC)        -- random integer 1..6
+
+    format.int(4.7);                 // INT  -- 4
+    format.int(-4.7);                // INT  -- -5 (floor, not truncate-toward-zero)
+
+    format.str(42);                  // STR$ -- "42"
+</script>
+```
+
+`format.rnd([n])` blends two dialects the same way `print.fill`/`print.repeat` did: bare `RND` (no args, or `n <= 0`) is Sinclair/CPC's float in `[0, 1)`; `RND(n)` with a positive `n` is BBC's bounded random integer. Sinclair has no bounded RND of its own — a die roll there is written `INT (RND*6)+1` — so `format.rnd(6)` borrows the BBC form instead.
+
+`format.str(n)` uses JavaScript's own Number-to-string rules rather than replicating any dialect's exact ROM floating-point formatting (scientific-notation thresholds, digit precision) — faithful for the integer/simple-decimal values a ported program actually prints, not a full float-to-ASCII emulation of the original hardware.
+
+[format source](https://raw.githack.com/nate2squared/print.At/master/format.js)
+
+---
 
 See [CHANGELOG.md](CHANGELOG.md) for release history and the roadmap.
 

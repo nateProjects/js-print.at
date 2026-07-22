@@ -2,8 +2,12 @@
 <html>
 <head>
 	<meta charset="utf-8">
-	<title>print.At 1.0.0 example</title>
-	<script src="printAt.min.js"></script>
+	<title>print.At 1.7.0 example</title>
+	<!-- printAt.min.js is stale (pre-dates 1.1's basicAt/glyph); this page
+	     loads the source build so the 1.2 verb tests below actually run. -->
+	<script src="printAt.js"></script>
+	<script src="data.js"></script>
+	<script src="format.js"></script>
 	<style>
 		body { font-family: sans-serif; margin: 16px; background: #f4f4f4; color: #222; }
 		h1 { margin: 0 0 4px 0; font-size: 18px; }
@@ -22,7 +26,7 @@
 	</style>
 </head>
 <body>
-	<h1>print.At 1.0.0 demo</h1>
+	<h1>print.At 1.7.0 demo</h1>
 	<p class="lead">Click the controls below to change palette, screen paper, border, grid and scale. Each change redraws the canvas.</p>
 
 	<div id="stage"></div>
@@ -40,6 +44,9 @@
 					<option value="cpc">Amstrad CPC</option>
 				</select>
 				<button id="applyPreset">Use preset resolution</button>
+			</div>
+			<div class="row" id="modeRow" style="display:none;">
+				<label>mode <select id="modeSel"></select></label>
 			</div>
 		</div>
 
@@ -73,33 +80,119 @@
 				<button data-scale="4">4x</button>
 			</div>
 		</div>
+
+		<div class="panel">
+			<h2>Bitmap font &amp; attributes:</h2>
+			<div class="row">
+				<button id="bitmapFontToggle">Bitmap font: ON</button>
+				<button id="invertToggle">Invert: OFF</button>
+				<button id="brightToggle">Bright: ON</button>
+				<button id="overToggle">Over: OFF</button>
+				<button id="flashToggle">Flash: OFF</button>
+			</div>
+			<p style="font-size:11px;color:#777;margin:6px 0 0 0;">Bitmap font follows the palette (spectrum/c64/cga each have one; bbc/msx/cpc don't yet) — truest-looking at scale 4+. Flash animates live on the canvas — a screenshot can't show that, watch the row 5 text blink.</p>
+		</div>
+
+		<div class="panel">
+			<h2>Sound (BEEP)</h2>
+			<div class="row">
+				<label>duration <input type="number" id="beepDuration" value="0.3" min="0.05" max="3" step="0.05" style="width:55px"></label>
+				<label>pitch <input type="number" id="beepPitch" value="0" min="-24" max="24" step="1" style="width:50px"></label>
+				<button id="beepPlay">Play</button>
+			</div>
+			<p style="font-size:11px;color:#777;margin:6px 0 0 0;">Audio can't be verified automatically (autoplay policy) — click Play to hear it.</p>
+		</div>
+
+		<div class="panel">
+			<h2>Stateful screen :</h2>
+			<div class="row">
+				<button id="pauseToggle">Snapshot + overlay</button>
+			</div>
+			<div id="statefulInfo" style="font: 11px monospace; margin-top:6px; color:#555;"></div>
+		</div>
+
+		<div class="panel">
+			<h2>pbasic.data / pbasic.format</h2>
+			<div class="row">
+				<button id="dataReadNext">data.read()</button>
+				<button id="dataRestore">data.restore()</button>
+			</div>
+			<div id="dataInfo" style="font: 11px monospace; margin-top:6px; color:#555;"></div>
+			<div class="row" style="margin-top:6px;">
+				<button id="rollDie">format.rnd(6)</button>
+			</div>
+			<div id="formatInfo" style="font: 11px monospace; margin-top:6px; color:#555;"></div>
+		</div>
 	</div>
 
 	<script>
 		var screen = pbasic.screen, print = pbasic.print;
+		var data = pbasic.data, format = pbasic.format;
+
+		// A small DATA pool for the demo panel below, BASIC-listing style.
+		data("Sword", "Shield", "Potion", 10, 20, 30);
 
 		// Initial setup
 		screen.palette('spectrum');
 		screen.size('spectrum');
 
+		var bitmapFontOn = true;  // matches the library's own default (screen.palette('spectrum') selects it automatically)
+		var invertDemo   = false;
+		var brightDemo   = true;
+		var overDemo     = false;
+		var flashDemo    = false;
+
 		function repaintScene() {
+			// screen.palette() already auto-selected this palette's own font
+			// (or null, for palettes with no bundled font); this toggle just
+			// overrides that with the canvas font when switched off.
+			screen.bitmapFont(bitmapFontOn ? (screen.palette().font || null) : null);
 			screen.clear();
 			print.color(0, 7);
-			print.at(1, 1,  "print.At 1.0.0");
+			print.at(1, 1,  "print.At 1.7.0");
 			print.at(1, 2,  "palette: " + screen.palette().name);
 			print.at(1, 3,  "size: " + screen.cols + "x" + screen.rows +
 			              " (" + screen.nativeWidth + "x" + screen.nativeHeight + ")");
 			print.at(1, 4,  "scale: " + screen.scale() +
 			              "  buffer: " + screen.canvas.width + "x" + screen.canvas.height);
 
-			print.color(2, 6); print.at(1, 6,  " ink 2 on paper 6 ");
+			print.style({flash: flashDemo}, function () {
+				print.at(1, 5, "flash: " + (flashDemo ? "ON " : "OFF") + " (print.flash)");
+			});
+
+			print.style({invert: invertDemo, bright: brightDemo}, function () {
+				print.color(2, 6); print.at(1, 6,  " ink 2 on paper 6 ");
+			});
 			print.color(1, 7); print.at(1, 7,  " ink 1 on paper 7 ");
 			print.color(4, 0); print.at(1, 8,  " ink 4 on paper 0 ");
+			if (overDemo) {
+				print.style({ink: 6, over: true}, function () {
+					print.at(3, 8, "OVER");
+				});
+			}
 
 			print.color(0, 7);
 			print.at(1, 10, "print.line wraps:");
 			print.line(" -> like this");
 			print.line("    -> and this");
+
+			print.at(1, 13, "print.tab / fill / repeat:");
+			print.at(1, 14, "Score"); print.tab(11); print.line("9001");
+			print.at(1, 15, "Lives"); print.tab(11); print.line("3");
+			print.at(1, 16, "Fuel "); print.fill(10, "#");
+			print.at(1, 17, print.repeat("=", 20));
+
+			print.at(1, 19, "print.cr / pad / style / color():");
+			print.at(1, 20, print.padRight("HP", 6) + print.padRight("42", 4));
+			print.at(1, 21, print.padLeft("42", 6) + print.padLeft("HP", 4));
+			print.style({ink: 2, paper: 0}, function () {
+				print.at(1, 22, " danger zone ");
+			});
+			var c = print.color();
+			print.at(1, 23, "color(): ink=" + c.ink + " paper=" + c.paper);
+
+			var cur = print.cursor();
+			print.at(1, 24, "cursor(): x=" + cur.x + " y=" + cur.y);
 		}
 
 		// Move canvas into #stage so it sits where we want it on the page.
@@ -148,9 +241,31 @@
 
 		rebuildSwatches();
 
-		// --- palette / preset ----------------------------------------------
+		// --- palette / preset ------------------------------------------------
+		// Multi-mode resolutions (1.6): only bbc/cga/cpc have a `resolutions`
+		// map in this bundle. The mode dropdown appears only for those.
+		function updateModeSelector() {
+			var name = document.getElementById('paletteSel').value;
+			var modes = pbasic.palettes[name] && pbasic.palettes[name].resolutions;
+			var row = document.getElementById('modeRow');
+			var sel = document.getElementById('modeSel');
+			sel.innerHTML = '';
+			if (!modes) { row.style.display = 'none'; return; }
+			for (var key in modes) {
+				if (!Object.prototype.hasOwnProperty.call(modes, key)) { continue; }
+				var m = modes[key];
+				var opt = document.createElement('option');
+				opt.value = key;
+				opt.textContent = key + ' (' + m.cols + 'x' + m.rows + ')';
+				sel.appendChild(opt);
+			}
+			row.style.display = '';
+		}
+		updateModeSelector();
+
 		document.getElementById('paletteSel').onchange = function () {
 			screen.palette(this.value);
+			updateModeSelector();
 			rebuildSwatches();
 			repaintScene();
 		};
@@ -159,6 +274,11 @@
 			screen.palette(name);
 			screen.size(name);
 			rebuildSwatches();
+			repaintScene();
+		};
+		document.getElementById('modeSel').onchange = function () {
+			var name = document.getElementById('paletteSel').value;
+			screen.size(name, this.value);
 			repaintScene();
 		};
 
@@ -183,6 +303,93 @@
 				repaintScene();
 			};
 		}
+
+		// --- sound (BEEP) ----------------------------------------------------
+		document.getElementById('beepPlay').onclick = function () {
+			var duration = parseFloat(document.getElementById('beepDuration').value) || 0.3;
+			var pitch    = parseInt(document.getElementById('beepPitch').value, 10) || 0;
+			pbasic.sound(duration, pitch);
+		};
+
+		// --- stateful screen (1.5) --------------------------------------------
+		function updateStatefulInfo() {
+			var ch = screen.charAt(1, 1);
+			var attr = screen.attrAt(1, 1);
+			document.getElementById('statefulInfo').textContent =
+				'charAt(1,1)="' + ch + '"  attrAt(1,1)={ink:' + attr.ink + ', paper:' + attr.paper + '}';
+		}
+		updateStatefulInfo();
+
+		var pausedSnapshot = null;
+		document.getElementById('pauseToggle').onclick = function () {
+			var btn = this;
+			if (!pausedSnapshot) {
+				pausedSnapshot = screen.snapshot();
+				print.style({ink: 7, paper: 0}, function () {
+					screen.cls(0, 0);
+					print.at(1, 1, "PAUSED");
+					print.at(1, 3, "(snapshot saved --");
+					print.at(1, 4, " click again to restore)");
+				});
+				btn.textContent = 'Restore snapshot';
+			} else {
+				screen.restore(pausedSnapshot);
+				pausedSnapshot = null;
+				btn.textContent = 'Snapshot + overlay';
+			}
+			updateStatefulInfo();
+		};
+
+		// --- bitmap font & attributes (1.6) -----------------------------------
+		document.getElementById('bitmapFontToggle').onclick = function () {
+			bitmapFontOn = !bitmapFontOn;
+			this.textContent = 'Bitmap font: ' + (bitmapFontOn ? 'ON' : 'OFF');
+			repaintScene();
+		};
+		document.getElementById('invertToggle').onclick = function () {
+			invertDemo = !invertDemo;
+			this.textContent = 'Invert: ' + (invertDemo ? 'ON' : 'OFF');
+			repaintScene();
+		};
+		document.getElementById('brightToggle').onclick = function () {
+			brightDemo = !brightDemo;
+			this.textContent = 'Bright: ' + (brightDemo ? 'ON' : 'OFF');
+			repaintScene();
+		};
+		document.getElementById('overToggle').onclick = function () {
+			overDemo = !overDemo;
+			this.textContent = 'Over: ' + (overDemo ? 'ON' : 'OFF');
+			repaintScene();
+		};
+		document.getElementById('flashToggle').onclick = function () {
+			flashDemo = !flashDemo;
+			this.textContent = 'Flash: ' + (flashDemo ? 'ON' : 'OFF');
+			repaintScene();
+		};
+
+		// --- pbasic.data / pbasic.format ---------------------------------------
+		function updateDataInfo() {
+			document.getElementById('dataInfo').textContent =
+				'remaining: ' + data.remaining();
+		}
+		updateDataInfo();
+
+		document.getElementById('dataReadNext').onclick = function () {
+			var v = data.read();
+			var box = document.getElementById('dataInfo');
+			box.textContent = (v === undefined ? 'out of DATA' : 'read: ' + JSON.stringify(v)) +
+				' -- remaining: ' + data.remaining();
+		};
+		document.getElementById('dataRestore').onclick = function () {
+			data.restore();
+			updateDataInfo();
+		};
+
+		document.getElementById('rollDie').onclick = function () {
+			document.getElementById('formatInfo').textContent =
+				'rolled: ' + format.rnd(6) + '   (format.int(4.7) = ' + format.int(4.7) +
+				', format.str(4.7) = "' + format.str(4.7) + '")';
+		};
 	</script>
 </body>
 </html>

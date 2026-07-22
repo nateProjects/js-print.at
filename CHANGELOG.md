@@ -1,5 +1,69 @@
 # Changelog
 
+## format 1.0.0
+
+* New companion module (`format.js`), independent of printAt/inputKey/dimArray/data
+* Added `format.rnd([n])` — bare `RND` (Sinclair/CPC: float in `[0,1)`) with no args; `RND(n)` (BBC: random integer `1..n`) with a positive `n`. Sinclair has no bounded RND of its own — a die roll there is `INT (RND*6)+1` — so `format.rnd(6)` borrows the BBC form, the same cross-dialect pattern as `print.fill`/`print.repeat`
+* Added `format.int(n)` — `INT`, floor (not truncate-toward-zero); matches Math.floor exactly, both Sinclair and BBC define it this way
+* Added `format.str(n)` — `STR$`, number-to-string conversion using JS's own Number-to-string rules rather than replicating any dialect's exact ROM float formatting (scientific-notation thresholds, digit precision) — faithful for what a ported program actually prints, not a full float-to-ASCII emulation
+
+## data 1.0.0
+
+* New companion module (`data.js`), independent of printAt/inputKey/dimArray/format
+* Added `data(...)` — `DATA` statement analogue; appends every argument to a shared pool in call order
+* Added `data.read([n])` — `READ` statement analogue; pulls the next value (or `n` values as an array, since JS has no multi-variable assignment for `READ a, b, c`) and advances the cursor. Warns and returns `undefined` (or fewer values than asked for) on running out, rather than the runtime error real BASIC raises — consistent with how this library degrades elsewhere
+* Added `data.restore([index])` — `RESTORE` statement analogue; resets the cursor to the start, or to a specific absolute position (the nearest analogue to `RESTORE line`, which real line numbers made possible and this doesn't have)
+* Added `data.remaining()` — count of unread values left in the pool; not a BASIC statement (real BASIC has no built-in "is there more DATA" check) but useful enough in a `while (data.remaining())` loop to include
+
+## printAt 1.7.0
+
+* Added the `'c64'` bitmap font — Commodore 64 character ROM ("901225-01"), charset 2 (the mixed-case set at ROM offset 0x0800; charset 1 is upper-case-only with PETSCII graphics where lowercase would be). Sourced from the raw ROM binary at [zimmers.net](http://www.zimmers.net/anonftp/pub/cbm/firmware/characters/c64.bin) and verified by rendering every glyph as ASCII art and reading the shapes back — which caught a real mapping bug (`@` sits at screen code 0, not 64) before it shipped. Covers space, digits, standard punctuation, and upper/lowercase letters (0x20-0x40, 0x41-0x5A, 0x61-0x7A); `` [ \ ] ^ _ ` `` have no PETSCII equivalent (those screen codes hold line-drawing graphics instead) and fall back to the canvas font
+* Added the `'cga'` bitmap font — the IBM PC/CGA 8x8 BIOS font (CP437), a full contiguous ASCII range (0x20-0x7E, no gaps — CP437 is ASCII-compatible here, unlike PETSCII). Sourced from the raw binary `CGA.F08` in [viler-int10h/vga-text-mode-fonts](https://github.com/viler-int10h/vga-text-mode-fonts), a font-preservation project cataloguing original IBM/OEM ROM fonts
+* `screen.palette(name)` now auto-selects that machine's own bitmap font via a palette's new optional `font` field, the same way it already selects the machine's default ink/paper. `spectrum`, `c64`, and `cga` each declare their own `font`; `bbc`/`msx`/`cpc` have none yet, so selecting them turns the bitmap font off. An explicit `screen.bitmapFont()` call still overrides it, and re-selecting a palette re-applies its font even over a manual override
+* `_bitmapFonts` entries may now have `null` gaps for code points a real charset has no glyph for (used by `c64`); `_glyphFor` already treated a missing glyph as "fall back to the canvas font", so no lookup changes were needed
+
+## printAt 1.6.0
+
+* Added `screen.bitmapFont(name)` — activates a bundled 8x8 bitmap ROM font so text renders as a true pixel bitmap instead of the canvas's own font, especially crisp at `screen.scale(1)`; user `screen.glyph()` registrations still take priority. Bundled: `'spectrum'`, the full ZX Spectrum ROM character set (96 chars, codes 0x20-0x7F), extracted from the character table at ROM address 3D00 via a public disassembly ([skoolkid.github.io/rom](https://skoolkid.github.io/rom/asm/3D00.html)) and verified against the font's well-known "slashed zero"
+* `screen.palette(name)` now also auto-selects that machine's own bitmap font via a palette's new optional `font` field, the same way it already selects the machine's default ink/paper. The `spectrum` palette declares `font: 'spectrum'`, so it's on by default; an explicit `screen.bitmapFont()` call still overrides it, and re-selecting a palette re-applies its font even over a manual override
+* Added `print.invert([bool])` — INVERSE: swaps ink/paper for the draw
+* Added `print.bright([bool])` — BRIGHT: the Spectrum's two-tier color intensity; defaults `true` so existing content keeps its pre-1.6 full-intensity look, `false` dims ink/paper by the ROM's normal/bright ratio (0xCD / 0xFF)
+* Added `print.over([bool])` — OVER: skips the paper fill so text draws onto the existing background instead of erasing it first (a practical approximation of the real per-pixel XOR)
+* Added `print.flash([bool])` — FLASH: periodically swaps ink/paper (~320ms, shared timer, started lazily) until the cell is redrawn without it
+* `print.style` now also scopes `invert` / `bright` / `over` / `flash`; `screen.attrAt` now also reports them; `screen.snapshot` / `screen.restore` now also carry them
+* Added multi-mode `resolutions` per palette for machines that had more than one real video mode — `screen.size(paletteName, modeName)`. Bundled: BBC (`mode0`/`mode1`/`mode2`/`mode7`), CGA (`hires`/`lores`), CPC (`mode0`/`mode1`/`mode2`); existing single-`resolution` palettes and `screen.size(paletteName)` calls are unaffected
+* INVERSE/OVER have no persistent form in real Sinclair BASIC (PRINT-item only) — making them persistent getters/setters here is a deliberate convenience, consistent with how this library already treats ink/paper
+
+## printAt 1.5.0
+
+* Added `screen.charAt(x, y)` — the character currently occupying a cell, or `undefined` out of bounds
+* Added `screen.attrAt(x, y)` — the `{ink, paper}` last used to draw a cell
+* Added `screen.attr(x, y, ink, paper)` — recolor a cell in place, keeping whatever character is already there
+* Added `screen.snapshot()` / `screen.restore(snapshot)` — capture and restore the full visible screen (pixels, char/attr buffer, cursor, persistent print colors); restore skips with a warning if the canvas was resized since the snapshot
+* Backed by a new parallel char/attr buffer that `print.at` / `print.line` / `print.tab` / `print.fill` / `print.repeat` all write through to as they draw — no bundled dialect has these as statements (Spectrum BASIC's nearest equivalent is PEEKing screen/attribute memory directly)
+
+## printAt 1.4.0
+
+* Added `print.cursor([x], [y])` — BBC BASIC `POS`/`VPOS` analogue, merged into one getter/setter (the originals are read-only and separate); no args reads `{x, y}`, args move the cursor without drawing
+* Added `pbasic.sound(duration, pitch)` — Sinclair BASIC `BEEP duration, pitch` analogue; plays a square-wave tone via Web Audio (pitch in semitones from middle C, matching the Spectrum ROM), no envelope shaping to stay faithful to the beeper's hard on/off click; returns a promise resolving after `duration`, composable with `await` like `input.pause`
+* Both have real BASIC ancestors but were split out of 1.3 (which is JS-ergonomics-with-no-ancestor) into their own stage
+
+## printAt 1.3.0
+
+* Added `print.cr([n])` — advance the cursor n rows (default 1), column reset to 1, no drawing; the nearest BASIC has is the implicit newline at the end of a plain PRINT statement
+* Added `print.clearLine([y], [paper])` — repaint row y (default: cursor's row) with paper (default: persistent print paper) across the full width, cursor moves to column 1
+* Added `print.padRight(text, width, [char])` / `print.padLeft(text, width, [char])` — pure string helpers, pad to width with char (default space)
+* Added `print.style({ink, paper}, fn)` — scoped callback; every print.* call inside `fn` uses the overridden ink/paper, restored once `fn` returns
+* Added `print.color()` getter — returns `{ink, paper}` with no args, unchanged setter behaviour otherwise
+* All five are JS ergonomics with no BASIC ancestor — ports live in [1.2.0](#printat-120). `print.cursor` and `pbasic.sound` (BEEP) do have real ancestors (BBC `POS`/`VPOS`, Sinclair `BEEP`) and were pulled out of this stage into their own
+
+## printAt 1.2.0
+
+* Added `print.tab(n, [ink], [paper])` — Sinclair BASIC `PRINT TAB n`; pads with spaces from the cursor to an absolute column on the current row
+* Added `print.fill(n, [char], [ink], [paper])` — BBC BASIC / Amstrad CPC `SPC(n)`; draws n cells relative to the cursor, wrapping to the next row, with an optional fill character beyond BASIC's plain-space original
+* Added `print.repeat(text, count)` — BBC BASIC / Amstrad CPC `STRING$(count, char$)`; a pure string helper (not a drawing verb) for composing with `print.at` / `print.line` / `print.fill`
+* These three are genuine cross-dialect ports (Sinclair's `TAB` is column-only — the Spectrum has no `SPC`/`STRING$` — so the relative-space and repeat-string verbs come from the BBC/CPC side of the bundled palettes); `print.cr`, `print.clearLine`, `print.padRight`/`padLeft`, `print.style`, `print.color()` getter have no BASIC ancestor and are deferred to 1.3
+
 ## inputKey 1.0.0
 
 * Added `input.line([prompt], [opts])` — the missing `INPUT a$` / `INPUT a` statement; renders prompt + field via printAt, supports backspace, length cap and numeric mode, resolves on Enter
@@ -67,7 +131,12 @@
 * printAt 1.1 - DONE: inline ink/paper on `print.at` / `print.line`, `print.basicAt` Spectrum-coord alias, `screen.glyph` bitmap UDGs, `input.pause`, numeric `dim.set` / `dim.get` varargs
 * inputKey 1.0 - DONE: `input.line` (INPUT analogue), `input.onkey` (edge-trigger), `input.held`, `input.attach` (element scoping), key-repeat opt-in, test pass
 * dimArray 1.0 - DONE: `.fill` / `.forEach` / `.copy`, typed numeric dims (`AS UBYTE` faithful), constructor `{fill}`, dimString varargs, test pass
-* printAt 1.2 - "BASIC verbs that are still missing": `print.tab`, `print.cr`, `print.cursor`, `print.repeat`, `print.fill`, `print.clearLine`, `print.padRight` / `padLeft`, `print.style({...}, fn)` scoped block, `print.color()` getter; small `pbasic.sound` (BEEP) module
-* printAt 1.3 - "Stateful screen": `screen.charAt` / `screen.attrAt` (read back), `screen.attr` (color-only), `screen.snapshot` / `screen.restore`
-* printAt 1.4 - Bundled bitmap fonts (Spectrum / C64 / CGA ROM) for true-pixel `screen.scale(1)` rendering; Spectrum text attributes (`print.invert` / `flash` / `bright` / `over`); multi-mode resolutions per palette
-* Future modules - `pbasic.data` (READ/DATA/RESTORE), `pbasic.format` (rnd/int/str$ helpers), `pbasic.store` (SAVE/LOAD via localStorage), `pbasic.loop` (game-loop helper); `pbasic.gfx` (PLOT/DRAW/CIRCLE pixel primitives) as a separate module when a port asks for it
+* printAt 1.2 - DONE: `print.tab` (Sinclair `PRINT TAB n`), `print.fill` (BBC/CPC `SPC(n)`), `print.repeat` (BBC/CPC `STRING$`) — genuine cross-dialect ports, split out from the rest of the "missing BASIC verbs" list below
+* printAt 1.3 - DONE: `print.cr`, `print.clearLine`, `print.padRight` / `padLeft`, `print.style({...}, fn)` scoped block, `print.color()` getter — JS ergonomics with no BASIC ancestor
+* printAt 1.4 - DONE: `print.cursor` (BBC `POS`/`VPOS`, but set-able) and `pbasic.sound` (Sinclair `BEEP`) — real ancestors, pulled out of 1.3 into their own stage
+* printAt 1.5 - DONE: "Stateful screen": `screen.charAt` / `screen.attrAt` (read back), `screen.attr` (color-only), `screen.snapshot` / `screen.restore`
+* printAt 1.6 - DONE: `screen.bitmapFont` (Spectrum ROM font bundled, full charset, verified against a public disassembly); Spectrum text attributes (`print.invert` / `bright` / `over` / `flash`); multi-mode `resolutions` per palette (BBC, CGA, CPC)
+* printAt 1.7 - DONE: C64 and CGA ROM bitmap fonts for `screen.bitmapFont`, plus palette-driven auto font selection
+* data 1.0 - DONE: `data` (DATA), `data.read` (READ), `data.restore` (RESTORE), `data.remaining` (JS convenience, not from BASIC)
+* format 1.0 - DONE: `format.rnd` (RND, Sinclair/CPC bare + BBC bounded), `format.int` (INT), `format.str` (STR$)
+* Future modules - `pbasic.store` (SAVE/LOAD via localStorage), `pbasic.loop` (game-loop helper); `pbasic.gfx` (PLOT/DRAW/CIRCLE pixel primitives) as a separate module when a port asks for it
