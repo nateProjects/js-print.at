@@ -4,7 +4,9 @@ Basic Canvas Text Print Library
 
 Adds BASIC-style `print.at` / `print.line` / `screen` commands to JavaScript, drawing to an HTML5 canvas, with swappable retro color palettes (ZX Spectrum, C64, CGA, BBC, MSX, Amstrad CPC) and matching pseudo-resolutions.
 
-For a future Pseudo-Basic project.
+![](printAt.png)
+
+![](snake-example.png)
 
 **Usage:**
 *(Within a HTML web page)*
